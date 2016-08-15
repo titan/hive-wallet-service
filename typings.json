@@ -4,5 +4,8 @@
     "nanomsg": "http://git.fengchaohuzhu.com:10080/Titan/typescript.d.ts/raw/master/nanomsg.d.ts",
     "node": "registry:dt/node#6.0.0+20160807145350",
     "redis": "registry:dt/redis#0.12.1+20160728132028"
+  },
+  "dependencies": {
+    "hive-service": "file:node_modules/hive-service/service.d.ts"
   }
 }
