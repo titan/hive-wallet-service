@@ -11,10 +11,10 @@ $(SERVER): $(SRCDIR)/server.ts
 $(SRCDIR)/server.ts: node_modules typings
 
 node_modules:
-	$(NPM) --install
+	$(NPM) install
 
 typings:
-	typings --install
+	typings install
 
 clean:
 	rm -rf $(DISTDIR)
