@@ -1,7 +1,7 @@
 import { Service, Config, Context, ResponseFunction, Permission } from 'hive-service';
 import * as Redis from "redis";
 
-let redis = Redis.createClient();
+let redis = Redis.createClient(6379, "redis"); // port, host
 
 let list_key = "plans";
 let entities_prefix = "plans-";
@@ -52,7 +52,7 @@ svc.call('getPlanItems', permissions, (ctx: Context, rep: ResponseFunction, pid:
 
 function ids2objects(key: string, ids: string[], rep: ResponseFunction) {
   let multi = redis.multi();
-  for (let id in ids) {
+  for (let id of ids) {
     multi.hget(key, id);
   }
   multi.exec(function(err, replies) {
