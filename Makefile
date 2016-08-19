@@ -1,14 +1,16 @@
 DISTDIR=./dist
 SRCDIR=./src
 SERVER=$(DISTDIR)/server.js
+PROCESSOR=$(DISTDIR)/processor.js
 NPM=cnpm
 
-all: $(SERVER)
+all: $(SERVER) $(PROCESSOR)
 
-$(SERVER): $(SRCDIR)/server.ts
-	tsc
+$(SERVER) $(PROCESSOR): $(SRCDIR)/server.ts $(SRCDIR)/processor.ts
+	tsc || rm $(SERVER) $(PROCESSOR)
 	
 $(SRCDIR)/server.ts: node_modules typings
+$(SRCDIR)/processor.ts: node_modules typings
 
 node_modules:
 	$(NPM) install

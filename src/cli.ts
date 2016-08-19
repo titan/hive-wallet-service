@@ -15,7 +15,7 @@ req.connect(addr);
 
 let params = {
   ctx: {domain: 'mobile', ip: 'localhost', uid: ''},
-  fun: 'getAvailablePlans',
+  fun: 'refresh',
   args: []
 };
 

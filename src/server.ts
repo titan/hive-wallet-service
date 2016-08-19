@@ -1,5 +1,7 @@
 import { Service, Config, Context, ResponseFunction, Permission } from 'hive-service';
 import * as Redis from "redis";
+import * as nanomsg from 'nanomsg';
+import * as msgpack from 'msgpack-lite';
 
 let redis = Redis.createClient(6379, "redis"); // port, host
 
@@ -11,6 +13,7 @@ let item_key = "plan-items";
 
 let config: Config = {
   svraddr: 'tcp://0.0.0.0:4040',
+  msgaddr: 'ipc:///tmp/queue.ipc'
 };
 
 let svc = new Service(config);
@@ -48,6 +51,10 @@ svc.call('getPlanItems', permissions, (ctx: Context, rep: ResponseFunction, pid:
       ids2objects(item_key, result, rep);
     }
   });
+});
+
+svc.call('refresh', permissions, (ctx: Context, rep: ResponseFunction) => {
+  ctx.msgqueue.send(msgpack.encode({cmd: "refresh", args: null}));
 });
 
 function ids2objects(key: string, ids: string[], rep: ResponseFunction) {

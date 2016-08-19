@@ -3,6 +3,8 @@
     "hive-service": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-service.git",
     "msgpack-lite": "^0.1.20",
     "nanomsg": "^3.2.1",
+    "pg": "^6.1.0",
+    "pg-pool": "^1.4.0",
     "redis": "^2.6.2"
   }
 }

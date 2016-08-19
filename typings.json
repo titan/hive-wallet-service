@@ -6,6 +6,8 @@
     "redis": "registry:dt/redis#0.12.1+20160728132028"
   },
   "dependencies": {
-    "hive-service": "file:node_modules/hive-service/service.d.ts"
+    "hive-service": "file:node_modules/hive-service/service.d.ts",
+    "pg": "registry:npm/pg#6.0.2+20160802225752",
+    "pg-pool": "registry:npm/pg-pool#1.3.1+20160723033700"
   }
 }
