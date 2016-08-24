@@ -5,12 +5,13 @@ import * as msgpack from 'msgpack-lite';
 
 let redis = Redis.createClient(6379, "redis"); // port, host
 
-let list_key = "plans";
-let entities_prefix = "plans-";
-let items_prefix = "plan-items-";
-let entity_key = "plan-entities";
-let item_key = "plan-items";
-
+let wallet_entity = "wallets-";
+let account_entities = "accounts-";
+let transactions_entities = "transactions-";
+let list_key = "wallets"
+let wallet_key = "wallet";
+let account_key = "accounts";
+let transactions_key = "transactions";
 let config: Config = {
   svraddr: 'tcp://0.0.0.0:4040',
   msgaddr: 'ipc:///tmp/queue.ipc'
@@ -20,40 +21,41 @@ let svc = new Service(config);
 
 let permissions: Permission[] = [['mobile', true], ['admin', true]];
 
-svc.call('getAvailablePlans', permissions, (ctx: Context, rep: ResponseFunction) => {
+svc.call('getWallet', permissions, (ctx: Context, rep: ResponseFunction) => {
   // http://redis.io/commands/sdiff
-  redis.sdiff(list_key, entities_prefix + ctx.uid, function (err, result) {
+  redis.lrange(wallet_entity + ctx.uid, function (err, result) {
     if (err) {
       rep([]);
     } else {
-      ids2objects(entity_key, result, rep);
+      ids2objects(wallet_key, result, rep);
     }
   });
 });
 
-svc.call('getJoinedPlans', permissions, (ctx: Context, rep: ResponseFunction) => {
+svc.call('getAccounts', permissions, (ctx: Context, rep: ResponseFunction) => {
   // http://redis.io/commands/smembers
-  redis.smembers(entities_prefix + ctx.uid, function (err, result) {
+  redis.smembers(account_entities + ctx.uid,0,-1, function (err, result) {
     if (err) {
       rep([]);
     } else {
-      ids2objects(entity_key, result, rep);
+      ids2objects(account_key, result, rep);
     }
   });
 });
 
-svc.call('getPlanItems', permissions, (ctx: Context, rep: ResponseFunction, pid: string) => {
+svc.call('getTransactions', permissions, (ctx: Context, rep: ResponseFunction, pid: string) => {
   // http://redis.io/commands/lrange
-  redis.lrange(items_prefix + pid, 0, -1, function (err, result) {
+  redis.lrange(transactions_entities + ctx.uid, 0, -1, function (err, result) {
     if (err) {
       rep([]);
     } else {
-      ids2objects(item_key, result, rep);
+      ids2objects(transactions_key, result, rep);
     }
   });
 });
 
 svc.call('refresh', permissions, (ctx: Context, rep: ResponseFunction) => {
+  console.log('111')
   ctx.msgqueue.send(msgpack.encode({cmd: "refresh", args: null}));
 });
 
