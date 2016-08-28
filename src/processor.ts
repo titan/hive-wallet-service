@@ -1,5 +1,29 @@
 "use strict";
-const hive_processor_1 = require('hive-processor');
+import { Processor, Config, ModuleFunction, DoneFunction } from 'hive-processor';
+import { Client as PGClient, ResultSet } from 'pg';
+import { createClient, RedisClient} from 'redis';
+import * as bunyan from 'bunyan';
+
+let log = bunyan.createLogger({
+  name: 'wallet-processor',
+  streams: [
+    {
+      level: 'info',
+      path: '/var/log/processor-info.log',  // log ERROR and above to a file
+      type: 'rotating-file',
+      period: '1d',   // daily rotation
+      count: 7        // keep 7 back copies
+    },
+    {
+      level: 'error',
+      path: '/var/log/processor-error.log',  // log ERROR and above to a file
+      type: 'rotating-file',
+      period: '1w',   // daily rotation
+      count: 3        // keep 7 back copies
+    }
+  ]
+});
+
 let config = {
     dbhost: process.env['DB_HOST'],
     dbuser: process.env['DB_USER'],
@@ -8,14 +32,13 @@ let config = {
     cachehost: process.env['CACHE_HOST'],
     addr: "ipc:///tmp/queue.ipc"
 };
-let processor = new hive_processor_1.Processor(config);
-// console.log(config);
-console.log('config');
-processor.call('refresh', (db, cache, done) => {
-    console.log('333');
+let processor = new Processor(config);
+
+processor.call('wallet', (db, cache, done) => {
+    log.info('wallet');
     db.query('SELECT id, balance FROM wallets', [], (err, result) => {
         if (err) {
-            console.error('query error', err.message, err.stack);
+            log.error(err, 'query error');
             return;
         }
        
@@ -25,24 +48,24 @@ processor.call('refresh', (db, cache, done) => {
         }
         let multi = cache.multi();
         for (let wallet of wallets) {
-           console.log(wallet.id);
             multi.hset("wallet_entity", wallet.id, JSON.stringify(wallet));
         }
         for (let wallet of wallets) {
             multi.sadd("wallets", wallet.id)
         }
-        multi.exec((err, replies) => {
-            if (err) {
-                console.error(err);
+        multi.exec((err1, replies) => {
+            if (err1) {
+            log.error(err1, 'query error');
             }
             done();
         });
     });
 });
 processor.call('accounts', (db, cache, done) => {
-    db.query('SELECT id, type, vid, balance0, balance1 FROM accounts', [], (err, result) => {
-        if (err) {
-            console.error('query error', err.message, err.stack);
+    log.info('accounts');
+    db.query('SELECT id, type, vid, balance0, balance1 FROM accounts', [], (err2, result) => {
+        if (err2) {
+            log.error(err2, 'query error');
             return;
         }
         let accounts = [];
@@ -56,18 +79,19 @@ processor.call('accounts', (db, cache, done) => {
         for (let account of accounts) {
             multi.sadd("accounts", account.id);
         }
-        multi.exec((err, replies) => {
-            if (err) {
-                console.error(err);
+        multi.exec((err3, replies) => {
+            if (err3) {
+                log.error(err3, 'query error');
             }
             done();
         });
     });
 });
 processor.call('transaction', (db, cache, done) => {
-    db.query('SELECT id, type, title, occurred_at, amount FROM transactions', [], (err, result) => {
-        if (err) {
-            console.error('query error', err.message, err.stack);
+    log.info('transaction');
+    db.query('SELECT id, type, title, occurred_at, amount FROM transactions', [], (err4, result) => {
+        if (err4) {
+            log.error(err4, 'query error');
             return;
         }
         let transactions = [];
@@ -81,9 +105,9 @@ processor.call('transaction', (db, cache, done) => {
         for (let transaction of transactions) {
             multi.sadd("transactions", transaction.id);
         }
-        multi.exec((err, replies) => {
-            if (err) {
-                console.error(err);
+        multi.exec((err5, replies) => {
+            if (err5) {
+                log.error(err5, 'query error');
             }
             done();
         });

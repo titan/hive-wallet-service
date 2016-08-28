@@ -2,6 +2,27 @@ import { Service, Config, Context, ResponseFunction, Permission } from 'hive-ser
 import * as Redis from "redis";
 import * as nanomsg from 'nanomsg';
 import * as msgpack from 'msgpack-lite';
+import * as bunyan from 'bunyan';
+
+let log = bunyan.createLogger({
+  name: 'wallet-server',
+  streams: [
+    {
+      level: 'info',
+      path: '/var/log/server-info.log',  // log ERROR and above to a file
+      type: 'rotating-file',
+      period: '1d',   // daily rotation
+      count: 7        // keep 7 back copies
+    },
+    {
+      level: 'error',
+      path: '/var/log/server-error.log',  // log ERROR and above to a file
+      type: 'rotating-file',
+      period: '1w',   // daily rotation
+      count: 3        // keep 7 back copies
+    }
+  ]
+});
 
 let redis = Redis.createClient(6379, "redis"); // port, host
 
@@ -23,6 +44,7 @@ let permissions: Permission[] = [['mobile', true], ['admin', true]];
 
 svc.call('getWallet', permissions, (ctx: Context, rep: ResponseFunction) => {
   // http://redis.io/commands/sdiff
+  log.info('getWallet %j', ctx);
   redis.lrange(wallet_entity + ctx.uid, function (err, result) {
     if (err) {
       rep([]);
@@ -33,6 +55,7 @@ svc.call('getWallet', permissions, (ctx: Context, rep: ResponseFunction) => {
 });
 
 svc.call('getAccounts', permissions, (ctx: Context, rep: ResponseFunction) => {
+  log.info('getAccounts %j', ctx);
   // http://redis.io/commands/smembers
   redis.smembers(account_entities + ctx.uid,0,-1, function (err, result) {
     if (err) {
@@ -44,6 +67,7 @@ svc.call('getAccounts', permissions, (ctx: Context, rep: ResponseFunction) => {
 });
 
 svc.call('getTransactions', permissions, (ctx: Context, rep: ResponseFunction, pid: string) => {
+  log.info('getTransactions %j', ctx);
   // http://redis.io/commands/lrange
   redis.lrange(transactions_entities + ctx.uid, 0, -1, function (err, result) {
     if (err) {
@@ -54,8 +78,8 @@ svc.call('getTransactions', permissions, (ctx: Context, rep: ResponseFunction, p
   });
 });
 
-svc.call('refresh', permissions, (ctx: Context, rep: ResponseFunction) => {
-  console.log('111')
+svc.call('wallet', permissions, (ctx: Context, rep: ResponseFunction) => {
+  log.info('wallet %j', ctx);
   ctx.msgqueue.send(msgpack.encode({cmd: "refresh", args: null}));
 });
 
