@@ -1,3 +1,9 @@
+dist
+node_modules
+npm-debug.*
+.vscode
+typings
+=======
 # ---> Node
 # Logs
 logs
