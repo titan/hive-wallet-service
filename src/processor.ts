@@ -1,141 +1,108 @@
 "use strict";
-import { Processor, Config, ModuleFunction, DoneFunction } from 'hive-processor';
+import { Processor, Config, ModuleFunction, DoneFunction, rpc} from 'hive-processor';
 import { Client as PGClient, ResultSet } from 'pg';
 import { createClient, RedisClient} from 'redis';
 import * as bunyan from 'bunyan';
+import * as hostmap from './hostmap'
+import * as uuid from 'uuid';
 
 let log = bunyan.createLogger({
-  name: 'wallet-processor',
-  streams: [
-    {
-      level: 'info',
-      path: '/var/log/processor-info.log',  // log ERROR and above to a file
-      type: 'rotating-file',
-      period: '1d',   // daily rotation
-      count: 7        // keep 7 back copies
-    },
-    {
-      level: 'error',
-      path: '/var/log/processor-error.log',  // log ERROR and above to a file
-      type: 'rotating-file',
-      period: '1w',   // daily rotation
-      count: 3        // keep 7 back copies
-    }
-  ]
+    name: 'wallet-processor',
+    streams: [
+        {
+            level: 'info',
+            path: '/var/log/wallet-processor-info.log',  // log ERROR and above to a file
+            type: 'rotating-file',
+            period: '1d',   // daily rotation
+            count: 7        // keep 7 back copies
+        },
+        {
+            level: 'error',
+            path: '/var/log/wallet-processor-error.log',  // log ERROR and above to a file
+            type: 'rotating-file',
+            period: '1w',   // daily rotation
+            count: 3        // keep 7 back copies
+        }
+    ]
 });
 
-let config = {
+let config: Config = {
     dbhost: process.env['DB_HOST'],
     dbuser: process.env['DB_USER'],
+    dbport: process.env['DB_PORT'],
     database: process.env['DB_NAME'],
     dbpasswd: process.env['DB_PASSWORD'],
     cachehost: process.env['CACHE_HOST'],
-    addr: "ipc:///tmp/queue.ipc"
+    addr: "ipc:///tmp/wallet.ipc"
 };
+function getLocalTime(nS) {
+    return new Date(parseInt(nS) * 1000).toLocaleString().replace(/:\d{1,2}$/, ' ');
+}
 let processor = new Processor(config);
-
-processor.call('wallet', (db, cache, done) => {
-    log.info('wallet');
-    db.query('SELECT id, balance FROM wallets', [], (err, result) => {
+//   let args = { ctx, uid, aid, type, vid, balance0, balance1 };
+processor.call('createAccount', (db: PGClient, cache: RedisClient, done: DoneFunction, args) => {
+    log.info('createAccount');
+    let balance = args.balance0 + args.balance1;
+    let tid = uuid.v1();
+    let title = `加入计划 充值 ${balance}元`;
+    let created_at = new Date().getTime();
+    let created_at1 = getLocalTime(created_at / 1000);
+    db.query('BEGIN', (err: Error) => {
         if (err) {
             log.error(err, 'query error');
-            return;
-        }
-       
-        let wallets = [];
-        for (let row of result.rows) {
-            wallets.push(row2wallet(row));
-        }
-        let multi = cache.multi();
-        for (let wallet of wallets) {
-            multi.hset("wallet_entity", wallet.id, JSON.stringify(wallet));
-        }
-        for (let wallet of wallets) {
-            multi.sadd("wallets", wallet.id)
-        }
-        multi.exec((err1, replies) => {
-            if (err1) {
-            log.error(err1, 'query error');
-            }
             done();
-        });
+        } else {
+            db.query('INSERT INTO accounts(id,uid,type,vid,balance0,balance1) VALUES($1,$2,$3,$4,$5,$6)', [args.aid, args.uid, args.type, args.vid, args.balance0, args.balance1], (err: Error) => {
+                if (err) {
+                    log.info(err + 'insert into accounts error in wallet');
+                    done();
+                    return;
+                }
+                else {
+                    db.query('INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)', [tid, args.aid, args.type, title, balance], (err: Error) => {
+                        if (err) {
+                            log.info(err + 'insert into transactions error in wallet');
+                            done();
+                            return;
+                        }
+                        else {
+                            db.query('COMMIT', [], (err: Error) => {
+                                if (err) {
+                                    log.info(err);
+                                    log.error(err, 'insert plan order commit error');
+                                    done();
+                                } else {
+                                    let p = rpc(args.ctx.domain, hostmap.default["vehicle"], null, "getModelAndVehicleInfo", args.vid);
+                                    p.then((vehicle) => {
+                                        if (err) {
+                                            log.info("call vehicle error");
+                                        } else {
+                                            let multi = cache.multi();
+                                            let transactions = {amount:balance,occurred_at:created_at1,aid:args.aid,id:args.uid,title:title,type:1};
+                                            let accounts = { balance0: args.balance0, balance1: args.balance1, id: args.aid, type: args.type, vehicle: vehicle };
+                                            multi.zadd("transactions-" + args.uid, created_at, JSON.stringify(transactions));
+                                            multi.hset("wallet-entities", args.uid, JSON.stringify(accounts));
+                                            multi.exec((err3, replies) => {
+                                                if (err3) {
+                                                    log.error(err3, 'query redis error');
+                                                } else {
+                                                    log.info('placeAnDriverOrder:==========is done');
+                                                    done(); // close db and cache connection
+                                                }
+                                            });
+                                        }
+                                    });
+                                }
+                            })
+                        }
+                    });
+                }
+            });
+        }
     });
 });
-processor.call('accounts', (db, cache, done) => {
-    log.info('accounts');
-    db.query('SELECT id, type, vid, balance0, balance1 FROM accounts', [], (err2, result) => {
-        if (err2) {
-            log.error(err2, 'query error');
-            return;
-        }
-        let accounts = [];
-        for (let row1 of result.rows) {
-            accounts.push(row2account(row1));
-        }
-        let multi = cache.multi();
-        for (let account of accounts) {
-            multi.hset("account", account.id, JSON.stringify(account));
-        }
-        for (let account of accounts) {
-            multi.sadd("accounts", account.id);
-        }
-        multi.exec((err3, replies) => {
-            if (err3) {
-                log.error(err3, 'query error');
-            }
-            done();
-        });
-    });
-});
-processor.call('transaction', (db, cache, done) => {
-    log.info('transaction');
-    db.query('SELECT id, type, title, occurred_at, amount FROM transactions', [], (err4, result) => {
-        if (err4) {
-            log.error(err4, 'query error');
-            return;
-        }
-        let transactions = [];
-        for (let row2 of result.rows) {
-            transactions.push(row2transations(row2));
-        }
-        let multi = cache.multi();
-        for (let transaction of transactions) {
-            multi.hset("transaction", transaction.id, JSON.stringify(transaction));
-        }
-        for (let transaction of transactions) {
-            multi.sadd("transactions", transaction.id);
-        }
-        multi.exec((err5, replies) => {
-            if (err5) {
-                log.error(err5, 'query error');
-            }
-            done();
-        });
-    });
-});
-function row2wallet(row) {
-    return {
-        id: row.id,
-        balance: row.balance
-    };
-}
-function row2account(row1) {
-    return {
-        id: row1.id,
-        type: row1.type,
-        vid: row1.vid,
-        balance0: row1.balance0,
-        balance1: row1.balance1
-    };
-}
-function row2transations(row2) {
-    return {
-        id: row2.id,
-        type: row2.type,
-        title: row2.title,
-        occurred_at: row2.occurred_at,
-        amount: row2.amount
-    };
-}
+
+
+
 processor.run();
 console.log('Start processor at ' + config.addr);
