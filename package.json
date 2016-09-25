@@ -1,7 +1,7 @@
 {
   "dependencies": {
     "bunyan": "^1.8.1",
-    "hive-service": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-service.git",
+    "hive-server": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-server.git",
     "hive-processor": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-processor.git",
     "msgpack-lite": "^0.1.20",
     "nanomsg": "^3.2.1",
