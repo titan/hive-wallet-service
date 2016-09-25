@@ -40,8 +40,8 @@ let svc = new Server(config);
 
 let permissions: Permission[] = [['mobile', true], ['admin', true]];
 
-svc.call('createAccount', permissions, (ctx: Context, rep: ResponseFunction, type: string, vid: string, balance0: string, balance1: string) => {
-  let uid = ctx.uid;
+svc.call('createAccount', permissions, (ctx: Context, rep: ResponseFunction,uid:string, type: string, vid: string, balance0: string, balance1: string) => {
+  // let uid = ctx.uid;
   let aid = uuid.v1();
   let args = { ctx, uid, aid, type, vid, balance0, balance1 };
   log.info('createAccount', args);
