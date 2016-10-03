@@ -74,7 +74,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                     log.error(err, "insert plan order commit error");
                                     done();
                                 } else {
-                                    let p = rpc(args.ctx.domain, hostmap.default["vehicle"], null, "getModelAndVehicleInfo", args.vid);
+                                    let p = rpc(args.domain, hostmap.default["vehicle"], null, "getModelAndVehicleInfo", args.vid);
                                     p.then((vehicle) => {
                                         if (err) {
                                             log.info("call vehicle error");

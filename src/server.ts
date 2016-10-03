@@ -1,4 +1,4 @@
-import { Server, Config, Context, ResponseFunction, Permission  from "hive-server";
+import { Server, Config, Context, ResponseFunction, Permission } from "hive-server";
 import * as Redis from "redis";
 import * as nanomsg from "nanomsg";
 import * as msgpack from "msgpack-lite";
@@ -44,7 +44,8 @@ let permissions: Permission[] = [["mobile", true], ["admin", true]];
 svc.call("createAccount", permissions, (ctx: Context, rep: ResponseFunction, uid: string, type: string, vid: string, balance0: string, balance1: string) => {
   // let uid = ctx.uid;
   let aid = vid;
-  let args = { ctx, uid, aid, type, vid, balance0, balance1 };
+  let domain = ctx.domain;
+  let args = { domain, uid, aid, type, vid, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "createAccount", args: args }));
   rep({ status: "200", aid: aid });
@@ -102,7 +103,8 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
 //  来自order模块
 svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFunction, uid: string, vid: string, type1: string, balance0: string, balance1: string) => {
   log.info("getTransactions=====================");
-  let args = { ctx, uid, vid, type1, balance0, balance1 };
+  let domain = ctx.domain;
+  let args = { domain, uid, vid, type1, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: args }));
   rep({ status: "200" });
