@@ -4,7 +4,7 @@ import { Client as PGClient, ResultSet } from "pg";
 import { createClient, RedisClient} from "redis";
 import * as bunyan from "bunyan";
 import { servermap, triggermap } from "hive-hostmap";
-import * as uuid from "uuid";
+import * as uuid from "node-uuid";
 
 let log = bunyan.createLogger({
     name: "wallet-processor",
@@ -74,7 +74,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                     log.error(err, "insert plan order commit error");
                                     done();
                                 } else {
-                                    let p = rpc(args.domain, hostmap.default["vehicle"], null, "getModelAndVehicleInfo", args.vid);
+                                    let p = rpc(args.domain, servermap["vehicle"], null, "getModelAndVehicleInfo", args.vid);
                                     p.then((vehicle) => {
                                         if (err) {
                                             log.info("call vehicle error");
@@ -141,13 +141,13 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
                                 } else {
                                     let multi = cache.multi();
                                     multi.hget("wallet-entities", args1.uid);
-                                    multi.exec((err, replise) => {
+                                    multi.exec((err, replies: string) => {
                                         if (err) {
                                             log.info("err,get redis error");
                                             done();
                                         } else {
-                                            log.info("================" + replise);
-                                            let wallet_entities = JSON.parse(replise);
+                                            log.info("================" + replies);
+                                            let wallet_entities = JSON.parse(replies);
                                             log.info(wallet_entities);
                                             let balance01 = wallet_entities["balance0"];
                                             let balance11 = wallet_entities["balance1"];

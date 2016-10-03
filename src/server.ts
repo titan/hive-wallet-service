@@ -4,7 +4,7 @@ import * as nanomsg from "nanomsg";
 import * as msgpack from "msgpack-lite";
 import * as bunyan from "bunyan";
 import { servermap, triggermap } from "hive-hostmap";
-import * as uuid from "uuid";
+import * as uuid from "node-uuid";
 import { verify, uuidVerifier, stringVerifier } from "hive-verify";
 
 
