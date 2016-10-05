@@ -39,10 +39,9 @@ function getLocalTime(nS) {
     return new Date(parseInt(nS) * 1000).toLocaleString().replace(/:\d{1,2}$/, " ");
 }
 let processor = new Processor(config);
-//   let args = { ctx, uid, aid, type, vid, balance0, balance1 };
-processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFunction, args) => {
+processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, uid: string, aid: string, type: string, vid: string, balance0: number, balance1: number) => {
     log.info("createAccount");
-    let balance = args.balance0 + args.balance1;
+    let balance = balance0 + balance1;
     let tid = uuid.v1();
     let title = `加入计划 充值 ${balance}元`;
     let created_at = new Date().getTime();
@@ -52,7 +51,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
             log.error(err, "query error");
             done();
         } else {
-            db.query("INSERT INTO accounts(id,uid,type,vid,balance0,balance1) VALUES($1,$2,$3,$4,$5,$6)", [args.aid, args.uid, args.type, args.vid, args.balance0, args.balance1], (err: Error) => {
+            db.query("INSERT INTO accounts(id,uid,type,vid,balance0,balance1) VALUES($1,$2,$3,$4,$5,$6)", [aid, uid, type, vid, balance0, balance1], (err: Error) => {
                 if (err) {
                     db.query("ROLLBACK", [], (err) => {
                         log.error(err, "insert into accounts error");
@@ -60,7 +59,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                     });
                 }
                 else {
-                    db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, args.aid, args.type, title, balance], (err: Error) => {
+                    db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, aid, type, title, balance], (err: Error) => {
                         if (err) {
                             db.query("ROLLBACK", [], (err) => {
                                 log.error(err, "insert into transactions error");
@@ -74,16 +73,16 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                     log.error(err, "insert plan order commit error");
                                     done();
                                 } else {
-                                    let p = rpc(args.domain, servermap["vehicle"], null, "getModelAndVehicleInfo", args.vid);
+                                    let p = rpc(domain, servermap["vehicle"], null, "getModelAndVehicleInfo", vid);
                                     p.then((vehicle) => {
                                         if (err) {
                                             log.info("call vehicle error");
                                         } else {
                                             let multi = cache.multi();
-                                            let transactions = { amount: balance, occurred_at: created_at1, aid: args.aid, id: args.uid, title: title, type: 1 };
-                                            let accounts = { balance0: args.balance0, balance1: args.balance1, id: args.aid, type: args.type, vehicle: vehicle };
-                                            multi.zadd("transactions-" + args.uid, created_at, JSON.stringify(transactions));
-                                            multi.hset("wallet-entities", args.uid, JSON.stringify(accounts));
+                                            let transactions = { amount: balance, occurred_at: created_at1, aid: aid, id: uid, title: title, type: 1 };
+                                            let accounts = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
+                                            multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
+                                            multi.hset("wallet-entities", uid, JSON.stringify(accounts));
                                             multi.exec((err3, replies) => {
                                                 if (err3) {
                                                     log.error(err3, "query redis error");
@@ -104,12 +103,11 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
     });
 });
 
-
-processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: DoneFunction, args1) => {
+processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, uid: string, vid: string, type1: string, balance0: number, balance1: number) => {
     log.info("updateOrderState");
     let created_at = new Date().getTime();
     let created_at1 = getLocalTime(created_at / 1000);
-    let balance = args1.balance0 + args1.balance1;
+    let balance = balance0 + balance1;
     let title = `增加司机 充值 ${balance}元`;
     let tid = uuid.v1();
     db.query("BEGIN", (err: Error) => {
@@ -117,7 +115,7 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
             log.error(err, "query error");
             done();
         } else {
-            db.query("UPDATE accounts SET balance0 = balance0 + $1,balance1 = balance1 + $2 WHERE id = $3", [args1.balance0, args1.balance1, args1.vid], (err: Error, result: ResultSet) => {
+            db.query("UPDATE accounts SET balance0 = balance0 + $1,balance1 = balance1 + $2 WHERE id = $3", [balance0, balance1, vid], (err: Error, result: ResultSet) => {
                 if (err) {
                     db.query("ROLLBACK", [], (err) => {
                         log.error(err, "insert into accounts error");
@@ -125,7 +123,7 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
                     });
                 }
                 else {
-                    db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, args1.vid, args1.type1, title, balance], (err: Error, result: ResultSet) => {
+                    db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, vid, type1, title, balance], (err: Error, result: ResultSet) => {
                         if (err) {
                             db.query("ROLLBACK", [], (err) => {
                                 log.error(err, "insert into accounts error");
@@ -140,25 +138,25 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
                                     done();
                                 } else {
                                     let multi = cache.multi();
-                                    multi.hget("wallet-entities", args1.uid);
-                                    multi.exec((err, replies: string) => {
+                                    multi.hget("wallet-entities", uid);
+                                    multi.exec((err, replise: string) => {
                                         if (err) {
                                             log.info("err,get redis error");
                                             done();
                                         } else {
-                                            log.info("================" + replies);
-                                            let wallet_entities = JSON.parse(replies);
+                                            log.info("================" + replise);
+                                            let wallet_entities = JSON.parse(replise);
                                             log.info(wallet_entities);
                                             let balance01 = wallet_entities["balance0"];
                                             let balance11 = wallet_entities["balance1"];
-                                            let balance02 = balance01 + args1.balance0;
-                                            let balance12 = balance11 + args1.balance1;
+                                            let balance02 = balance01 + balance0;
+                                            let balance12 = balance11 + balance1;
                                             wallet_entities["balance0"] = balance02;
                                             wallet_entities["balance1"] = balance12;
                                             let multi = cache.multi();
-                                            let transactions = { amount: balance, occurred_at: created_at1, aid: args1.vid, id: args1.uid, title: title, type: args1.type1 };
-                                            multi.hset("wallet-entities", args1.uid, JSON.stringify(wallet_entities));
-                                            multi.zadd("transactions-" + args1.uid, created_at, JSON.stringify(transactions));
+                                            let transactions = { amount: balance, occurred_at: created_at1, aid: vid, id: uid, title: title, type: type1 };
+                                            multi.hset("wallet-entities", uid, JSON.stringify(wallet_entities));
+                                            multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
                                             multi.exec((err, result1) => {
                                                 if (err) {
                                                     log.info("err:hset order_entities error");

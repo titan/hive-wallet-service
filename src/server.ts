@@ -47,7 +47,7 @@ svc.call("createAccount", permissions, (ctx: Context, rep: ResponseFunction, uid
   let domain = ctx.domain;
   let args = { domain, uid, aid, type, vid, balance0, balance1 };
   log.info("createAccount", args);
-  ctx.msgqueue.send(msgpack.encode({ cmd: "createAccount", args: args }));
+  ctx.msgqueue.send(msgpack.encode({ cmd: "createAccount", domain, uid, aid, type, vid, balance0, balance1 }));
   rep({ status: "200", aid: aid });
 });
 
@@ -106,7 +106,7 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
   let domain = ctx.domain;
   let args = { domain, uid, vid, type1, balance0, balance1 };
   log.info("createAccount", args);
-  ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: args }));
+  ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", domain, uid, vid, type1, balance0, balance1 }));
   rep({ status: "200" });
 });
 
