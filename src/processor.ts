@@ -4,7 +4,7 @@ import { Client as PGClient, ResultSet } from "pg";
 import { createClient, RedisClient} from "redis";
 import * as bunyan from "bunyan";
 import { servermap, triggermap } from "hive-hostmap";
-import * as uuid from "uuid";
+import * as uuid from "node-uuid";
 
 let log = bunyan.createLogger({
     name: "wallet-processor",
