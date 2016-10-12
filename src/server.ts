@@ -48,7 +48,7 @@ svc.call("createAccount", permissions, (ctx: Context, rep: ResponseFunction, uid
   let args = { domain, uid, aid, type, vid, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "createAccount", args: [domain, uid, aid, type, vid, balance0, balance1] }));
-  rep({ status: "200", aid: aid });
+  rep({ status: "200", data: aid });
 });
 
 svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
@@ -76,7 +76,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
       }
       log.info("replies==========" + result);
       let result1 = { accounts: accounts, balance: sum, id: ctx.uid };
-      rep({ code: 200, wallet: result1 });
+      rep({ code: 200, data: result1 });
     }
   });
 });
@@ -98,7 +98,7 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
       rep({ code: 500, msg: "未找到交易日志" });
     } else {
       // rep(JSON.parse(result));
-      rep({ code: 200, result: result.map(e => JSON.parse(e)) });
+      rep({ code: 200, data: result.map(e => JSON.parse(e)) });
     }
   });
 });
