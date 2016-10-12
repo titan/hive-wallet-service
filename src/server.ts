@@ -67,12 +67,13 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
       log.info(err);
       rep({ code: 500, msg: "walletinfo not found for this uid" });
     } else {
-      let sum = 0;
+      let sum = null;
       let accounts = JSON.parse(result);
-      // for (let account of accounts) {
-      let balance = accounts.balance0 + accounts.balance1;
-      // sum += balance;
-      // }
+      log.info(accounts);
+      for (let account of accounts) {
+        let balance = account.balance0 + account.balance1;
+        sum += balance;
+      }
       log.info("replies==========" + result);
       let result1 = { accounts: accounts, balance: sum, id: ctx.uid };
       rep({ code: 200, wallet: result1 });
@@ -96,7 +97,8 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
       log.info(err);
       rep({ code: 500, msg: "未找到交易日志" });
     } else {
-      rep(JSON.parse(result));
+      // rep(JSON.parse(result));
+      rep({ code: 200, result: result.map(e => JSON.parse(e)) });
     }
   });
 });
@@ -107,9 +109,17 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
   let args = { domain, uid, vid, type1, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
-  rep({ status: "200" });
+  rep({ code: 200, status: "200" });
 });
 
+// svc.call("createFreezeAmountLogs", permissions, (ctx: Context, rep: ResponseFunction) => {
+//   log.info("getTransactions=====================");
+//   let domain = ctx.domain;
+//   // let args = { domain, uid, vid, type1, balance0, balance1 };
+//   // log.info("createAccount", args);
+//   // ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
+//   rep({ code: 200, status: "200" });
+// });
 
 console.log("Start service at " + config.svraddr);
 

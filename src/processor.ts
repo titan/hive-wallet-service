@@ -43,7 +43,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
     log.info("createAccount");
     let balance = balance0 + balance1;
     let tid = uuid.v1();
-    let title = `加入计划 充值 ${balance}元`;
+    let title = `参加计划 收入`;
     let created_at = new Date().getTime();
     let created_at1 = getLocalTime(created_at / 1000);
     db.query("BEGIN", (err: Error) => {
@@ -79,8 +79,10 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                             log.info("call vehicle error");
                                         } else {
                                             let multi = cache.multi();
+                                            let accounts = [];
                                             let transactions = { amount: balance, occurred_at: created_at1, aid: aid, id: uid, title: title, type: 1 };
-                                            let accounts = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
+                                            let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
+                                            accounts.push(account);
                                             multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
                                             multi.hset("wallet-entities", uid, JSON.stringify(accounts));
                                             multi.exec((err3, replies) => {
@@ -108,7 +110,7 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
     let created_at = new Date().getTime();
     let created_at1 = getLocalTime(created_at / 1000);
     let balance = balance0 + balance1;
-    let title = `增加司机 充值 ${balance}元`;
+    let title = `添加司机`;
     let tid = uuid.v1();
     db.query("BEGIN", (err: Error) => {
         if (err) {
@@ -145,17 +147,21 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
                                             done();
                                         } else {
                                             log.info("================" + replise);
-                                            let wallet_entities = JSON.parse(replise);
-                                            log.info(wallet_entities);
-                                            let balance01 = wallet_entities["balance0"];
-                                            let balance11 = wallet_entities["balance1"];
-                                            let balance02 = balance01 + balance0;
-                                            let balance12 = balance11 + balance1;
-                                            wallet_entities["balance0"] = balance02;
-                                            wallet_entities["balance1"] = balance12;
+                                            let accounts = JSON.parse(replise);
+                                            log.info(accounts);
+                                            for (let account of accounts) {
+                                                if (account["id"] === vid) {
+                                                    let balance01 = account["balance0"];
+                                                    let balance11 = account["balance1"];
+                                                    let balance02 = balance01 + balance0;
+                                                    let balance12 = balance11 + balance1;
+                                                    account["balance0"] = balance02;
+                                                    account["balance1"] = balance12;
+                                                }
+                                            }
                                             let multi = cache.multi();
                                             let transactions = { amount: balance, occurred_at: created_at1, aid: vid, id: uid, title: title, type: type1 };
-                                            multi.hset("wallet-entities", uid, JSON.stringify(wallet_entities));
+                                            multi.hset("wallet-entities", uid, JSON.stringify(accounts));
                                             multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
                                             multi.exec((err, result1) => {
                                                 if (err) {
