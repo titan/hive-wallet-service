@@ -73,24 +73,49 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                     log.error(err, "insert plan order commit error");
                                     done();
                                 } else {
-                                    let p = rpc(domain, servermap["vehicle"], null, "getModelAndVehicleInfo", vid);
-                                    p.then((vehicle) => {
+                                    let p = rpc(domain, servermap["vehicle"], null, "getVehicle", vid);
+                                    p.then((v) => {
                                         if (err) {
                                             log.info("call vehicle error");
                                         } else {
-                                            let multi = cache.multi();
-                                            let accounts = [];
-                                            let transactions = { amount: balance, occurred_at: created_at1, aid: aid, id: uid, title: title, type: 1 };
-                                            let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
-                                            accounts.push(account);
-                                            multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
-                                            multi.hset("wallet-entities", uid, JSON.stringify(accounts));
-                                            multi.exec((err3, replies) => {
-                                                if (err3) {
-                                                    log.error(err3, "query redis error");
+                                            cache.hget("wallet-entities", uid, function (err, result2) {
+                                                if (err) {
+                                                    log.info("get wallete-entities err");
+                                                    done();
+                                                } else if (result2 == "") {
+                                                    let accounts = [];
+                                                    let vehicle = v["data"];
+                                                    let multi = cache.multi();
+                                                    let transactions = { amount: balance, occurred_at: created_at1, aid: aid, id: uid, title: title, type: 1 };
+                                                    let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
+                                                    accounts.push(account);
+                                                    multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
+                                                    multi.hset("wallet-entities", uid, JSON.stringify(accounts));
+                                                    multi.exec((err3, replies) => {
+                                                        if (err3) {
+                                                            log.error(err3, "query redis error");
+                                                        } else {
+                                                            log.info("placeAnDriverOrder:==========is done");
+                                                            done(); // close db and cache connection
+                                                        }
+                                                    });
                                                 } else {
-                                                    log.info("placeAnDriverOrder:==========is done");
-                                                    done(); // close db and cache connection
+                                                    let accounts = JSON.parse(result2);
+                                                    let vehicle = v["data"];
+                                                    let multi = cache.multi();
+                                                    let transactions = { amount: balance, occurred_at: created_at1, aid: aid, id: uid, title: title, type: 1 };
+                                                    let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
+                                                    accounts.push(account);
+                                                    multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
+                                                    multi.hset("wallet-entities", uid, JSON.stringify(accounts));
+                                                    multi.exec((err3, replies) => {
+                                                        if (err3) {
+                                                            log.error(err3, "query redis error");
+                                                        } else {
+                                                            log.info("placeAnDriverOrder:==========is done");
+                                                            done(); // close db and cache connection
+                                                        }
+                                                    });
                                                 }
                                             });
                                         }

@@ -62,10 +62,10 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
     return;
   }
   redis.hget(wallet_entities, ctx.uid, function (err, result) {
-    if (err || result == null) {
+    if (err || result == "") {
       log.info("get redis error in getwallet");
       log.info(err);
-      rep({ code: 500, msg: "walletinfo not found for this uid" });
+      rep({ code: 404, msg: "walletinfo not found for this uid" });
     } else {
       let sum = null;
       let accounts = JSON.parse(result);
@@ -109,7 +109,7 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
   let args = { domain, uid, vid, type1, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
-  rep({ code: 200, status: "200" });
+  rep({ code: 200, data: "200" });
 });
 
 // svc.call("createFreezeAmountLogs", permissions, (ctx: Context, rep: ResponseFunction) => {
