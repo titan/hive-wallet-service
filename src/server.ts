@@ -62,7 +62,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
     return;
   }
   redis.hget(wallet_entities, ctx.uid, function (err, result) {
-    if (err || result == "") {
+    if (err || result == "" || result == null) {
       log.info("get redis error in getwallet");
       log.info(err);
       rep({ code: 404, msg: "walletinfo not found for this uid" });
@@ -92,7 +92,7 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
     return;
   }
   redis.zrevrange(transactions + ctx.uid, offset, limit, function (err, result) {
-    if (err) {
+    if (err || result === null || result == "") {
       log.info("get redis error in getTransactions");
       log.info(err);
       rep({ code: 500, msg: "未找到交易日志" });
