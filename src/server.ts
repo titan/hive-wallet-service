@@ -48,7 +48,7 @@ svc.call("createAccount", permissions, (ctx: Context, rep: ResponseFunction, uid
   let args = { domain, uid, aid, type, vid, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "createAccount", args: [domain, uid, aid, type, vid, balance0, balance1] }));
-  rep({ status: "200", aid: aid });
+  rep({ status: "200", data: aid });
 });
 
 svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
@@ -62,10 +62,10 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
     return;
   }
   redis.hget(wallet_entities, ctx.uid, function (err, result) {
-    if (err || result == null) {
+    if (err || result == "" || result == null) {
       log.info("get redis error in getwallet");
       log.info(err);
-      rep({ code: 500, msg: "walletinfo not found for this uid" });
+      rep({ code: 404, msg: "walletinfo not found for this uid" });
     } else {
       let sum = null;
       let accounts = JSON.parse(result);
@@ -76,7 +76,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
       }
       log.info("replies==========" + result);
       let result1 = { accounts: accounts, balance: sum, id: ctx.uid };
-      rep({ code: 200, wallet: result1 });
+      rep({ code: 200, data: result1 });
     }
   });
 });
@@ -92,13 +92,13 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
     return;
   }
   redis.zrevrange(transactions + ctx.uid, offset, limit, function (err, result) {
-    if (err) {
+    if (err || result === null || result == "") {
       log.info("get redis error in getTransactions");
       log.info(err);
       rep({ code: 500, msg: "未找到交易日志" });
     } else {
       // rep(JSON.parse(result));
-      rep({ code: 200, result: result.map(e => JSON.parse(e)) });
+      rep({ code: 200, data: result.map(e => JSON.parse(e)) });
     }
   });
 });
@@ -109,7 +109,7 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
   let args = { domain, uid, vid, type1, balance0, balance1 };
   log.info("createAccount", args);
   ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
-  rep({ code: 200, status: "200" });
+  rep({ code: 200, data: "200" });
 });
 
 // svc.call("createFreezeAmountLogs", permissions, (ctx: Context, rep: ResponseFunction) => {
