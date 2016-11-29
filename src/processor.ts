@@ -224,7 +224,6 @@ processor.call("ApplyCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
     let state = 0;
     let coid = uuid.v1();
     let cashout_entity = {};
-    let promises = [];
     let pcounter = new Promise<void>((resolve, reject) => {
         cache.hget("cashout-counter", dateString, (err, result) => {
             if (err) {
@@ -264,107 +263,112 @@ processor.call("ApplyCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
             }
         });
     });
-    promises.push(pcounter);
-    let pamount = new Promise<void>((resolve, reject) => {
-        cache.hget("wallet-entities", user_id, (err, result) => {
-            if (err) {
-                log.info(err);
-                reject(err);
-            } else if (result) {
-                cache.hget("orderid-vid", order_id, (err2, result2) => {
-                    if (err2) {
-                        log.info(err2);
-                        reject(err2);
-                    } else if (result2) {
-                        log.info("result2=========" + result2);
-                        for (let wallet of JSON.parse(result)) {
-                            if (wallet["vehicle"]["id"] === result2) {
-                                amount = wallet["balance0"] + wallet["balance1"];
-                                log.info("amount is " + amount);
-                                break;
+    pcounter.then(() => {
+        let pamount = new Promise<void>((resolve, reject) => {
+            cache.hget("wallet-entities", user_id, (err, result) => {
+                if (err) {
+                    log.info(err);
+                    reject(err);
+                } else if (result) {
+                    cache.hget("orderid-vid", order_id, (err2, result2) => {
+                        if (err2) {
+                            log.info(err2);
+                            reject(err2);
+                        } else if (result2) {
+                            log.info("result2=========" + result2);
+                            for (let wallet of JSON.parse(result)) {
+                                if (wallet["vehicle"]["id"] === result2) {
+                                    amount = wallet["balance0"] + wallet["balance1"];
+                                    log.info("amount is " + amount);
+                                    break;
+                                }
                             }
+                            resolve();
+                        } else {
+                            log.info("Hget orderid-vid error");
+                            reject("Hget orderid-vid  error");
                         }
+                    });
+                } else {
+                    log.info("Hget wallet-entities error");
+                    reject("Hget wallet-entities error");
+                }
+            });
+        });
+        pamount.then(() => {
+            log.info("enter pcash");
+            let pcash = new Promise<void>((resolve, reject) => {
+                log.info("amount is " + amount);
+                db.query("INSERT INTO cashout(id, no, state, amount, order_id) VALUES($1, $2, $3, $4, $5)", [coid, cash_no, state, amount, order_id], (err, result) => {
+                    if (err) {
+                        log.info(err, "Error on INSERT INTO 'cashout_events'");
+                        reject(err);
                     } else {
-                        log.info("Hget orderid-vid error");
-                        reject("Hget orderid-vid  error");
+                        cashout_entity = {
+                            id: coid,
+                            no: cash_no,
+                            state: state,
+                            amount: amount,
+                            reason: "",
+                            order_id: order_id,
+                            last_event_id: "",
+                            created_at: date,
+                            updated_at: date
+                        };
+                        log.info(cashout_entity);
+                        let multi = cache.multi();
+                        multi.hset("cashout-entities", coid, JSON.stringify(cashout_entity));
+                        multi.zadd("applied-cashouts", date.getTime(), coid);
+                        multi.exec((err2, result2) => {
+                            if (err2) {
+                                log.info(err2);
+                                reject(err2);
+                            } else {
+                                log.info(result2);
+                                resolve();
+                            }
+                        });
                     }
                 });
-            } else {
-                log.info("Hget wallet-entities error");
-                reject("Hget wallet-entities error");
-            }
-        });
-    });
-    promises.push(pamount);
-    let pcash = new Promise<void>((resolve, reject) => {
-        log.info("amount is " + amount);
-        db.query("INSERT INTO cashout(id, no, state, amount, order_id) VALUES($1, $2, $3, $4, $5)", [coid, cash_no, state, amount, order_id], (err, result) => {
-            if (err) {
-                log.error(err, "Error on INSERT INTO 'cashout_events'");
-                reject(err);
-            } else {
-                cashout_entity = {
-                    id: coid,
-                    no: cash_no,
-                    state: state,
-                    amount: amount,
-                    reason: "",
-                    order_id: order_id,
-                    last_event_id: "",
-                    created_at: date,
-                    updated_at: date
-                };
-                let multi = cache.multi();
-                multi.hset("cashout-entities", coid, JSON.stringify(cashout_entity));
-                multi.zadd("applied-cashouts", date.getTime(), coid);
-                multi.exec((err2, result2) => {
-                    if (err2) {
-                        log.info(err2);
-                        reject(err2);
+            });
+            pcash.then(() => {
+                log.info("enter cashout events");
+                cashout_events(db, cache, done, domain, cashout_entity, user_id, user_id, (cb) => {
+                    if (cb) {
+                        log.info("ApplyCashOut success");
+                        cache.setex(cbflag, 30, JSON.stringify({
+                            code: 200,
+                            data: coid
+                        }), (err, result) => {
+                            done();
+                        });
                     } else {
-                        resolve();
+                        log.info("ApplyCashOut failed");
+                        cache.setex(cbflag, 30, JSON.stringify({
+                            code: 500,
+                            msg: "error"
+                        }), (err, result) => {
+                            done();
+                        });
                     }
                 });
-            }
+            });
         });
-    });
-    promises.push(pcash);
-    let pevent = new Promise<void>((resolve, reject) => {
-        let result = cashout_events(db, cache, done, domain, cashout_entity, user_id, user_id);
-        if (result) {
-            resolve();
-        } else {
-            reject("Cashout_events error");
-        }
-    });
-    promises.push(pevent);
-    async_serial<void>(promises, [], () => {
-        cache.setex(cbflag, 30, JSON.stringify({
-            code: 200,
-            data: coid
-        }));
-        done();
-    },(e: Error) => {
-        log.info(e);
-        cache.setex(cbflag, 30, JSON.stringify({
-            code: 500,
-            msg: e.message
-        }));
-        done();
     });
 });
 
-function cashout_events(db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, cashout_entity: Object, opid: string, user_id: string) {
-    uuid_1.v3({ namespace: uuid_1.namespace.url, name1: cashout_entity["id"], name2: cashout_entity["no"], name3: cashout_entity["state"] }, (err, result) => {
+function cashout_events(db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, cashout_entity: Object, opid: string, user_id: string, cb) {
+    uuid_1.v3({ namespace: uuid_1.namespace.url, name: cashout_entity["no"], name1: cashout_entity["updated_at"], name2: cashout_entity["state"].toString() }, (err, result) => {
         if (err) {
-            log.info(err);
+            log.info("uuid v3 error " + err);
         } else {
-            db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES($1, $2, $3, $4, $5)", [result, cashout_entity["state"], opid, user_id, cashout_entity], (err2, result2) => {
+            let result = uuid.v1();
+            db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [result, cashout_entity["state"], opid, user_id, cashout_entity], (err2, result2) => {
                 if (err2) {
-                    log.error(err2, "Insert into cashout_events error");
-                    return false;
+                    log.info(err2, "Insert into cashout_events error");
+                    cb(false);
                 } else {
-                    return true;
+                    cb(true);
                 }
             });
         }
@@ -373,115 +377,174 @@ function cashout_events(db: PGClient, cache: RedisClient, done: DoneFunction, do
 
 processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, coid: string, state: number, opid: string, user_id: string, cbflag: string) => {
     log.info("AgreeCashOut");
-    let promises = [];
     let date = new Date();
     let cashout_entity = {};
+    let order_no = "";
+    let url = "";
     let pcash = new Promise<void>((resolve, reject) => {
         db.query("UPDATE cashout SET state = $1 , updated_at = $2 where id = $3 AND deleted = false", [state, date, coid], (err, result) => {
             if (err) {
-                log.error(err, "Error on INSERT INTO 'cashout_events'");
+                log.error(err, "Error on UPDATE 'cashout'");
                 reject(err);
             } else {
                 resolve();
             }
         });
     });
-    promises.push(pcash);
-    let predis = new Promise<void>((resolve, reject) => {
-        cache.hget("cashout-entities", coid, (err, result) => {
-            if (err) {
-                reject(err);
-                log.info(err);
-            } else if (result) {
-                let cashout = JSON.parse(result);
-                cashout["state"] = state;
-                cashout["updated_at"] = date;
-                cashout_entity = cashout;
-                let multi = cache.multi();
-                multi.hset("cashout-entities", coid, JSON.stringify(cashout));
-                multi.zrem("applied-cashouts", coid);
-                if (state === 1) {
-                    multi.zadd("agreed-cashouts", date.getTime(), coid);
+    pcash.then(() => {
+        let predis = new Promise<void>((resolve, reject) => {
+            cache.hget("cashout-entities", coid, (err, result) => {
+                if (err) {
+                    reject(err);
+                    log.info(err);
+                } else if (result) {
+                    let cashout = JSON.parse(result);
+                    cashout["state"] = state;
+                    cashout["updated_at"] = date;
+                    cashout_entity = cashout;
+                    let multi = cache.multi();
+                    multi.hset("cashout-entities", coid, JSON.stringify(cashout));
+                    multi.zrem("applied-cashouts", coid);
+                    if (state === 1) {
+                        multi.zadd("agreed-cashouts", date.getTime(), coid);
+                    }
+                    if (state === 2) {
+                        multi.zadd("refused-cashouts", date.getTime(), coid);
+                    }
+                    multi.exec((err2, result2) => {
+                        if (err2) {
+                            reject(err2);
+                            log.info(err2);
+                        } else {
+                            resolve();
+                        }
+                    });
+                } else {
+                    reject("Hget cashout-entities error");
+                    log.info("Hget cashout-entities error");
                 }
-                if (state === 2) {
-                    multi.zadd("refused-cashouts", date.getTime(), coid);
-                }
-                multi.exec((err2, result2) => {
-                    if (err2) {
-                        reject(err2);
-                        log.info(err2);
+            });
+        });
+        predis.then(() => {
+            let pevent = new Promise<void>((resolve, reject) => {
+                cashout_events(db, cache, done, domain, cashout_entity, user_id, user_id, (cb) => {
+                    if (cb) {
+                        cache.hget("order-entities", cashout_entity["order_id"], (err, result) => {
+                            if (err) {
+                                reject(err);
+                                log.info(err);
+                            } else if (result) {
+                                order_no = JSON.parse(result)["id"];
+                                resolve();
+                            } else {
+                                reject("Hget order-entities error");
+                                log.info("Hget order-entities error");
+                            }
+                        });
+                    } else {
+                        reject("Insert event error");
+                        log.info("Insert event error");
+                    }
+                });
+            });
+            pevent.then(() => {
+                let pbank = new Promise<void>((resolve, reject) => {
+                    if (state === 1) {
+                        let test = process.env["WX_ENV"] === "test" ? true : false;
+                        let p = rpc(domain, servermap["profile"], null, "getUserByUserId", user_id);
+                        p.then(profile => {
+                            if (profile["code"] === 200 && profile["data"]["pnrid"]) {
+                                let b = rpc(domain, servermap["bank_payment"], null, "getCustomerId", profile["data"]["pnrid"]);
+                                b.then(payment => {
+                                    if (payment["code"] === 200) {
+                                        log.info(cashout_entity["order_id"], payment["cid"], cashout_entity["amount"], test);
+                                        let bank_amount = cashout_entity["amount"].toFixed(2).toString();
+                                        let g = rpc(domain, servermap["bank_payment"], null, "generateCashUrl", order_no, payment["cid"], bank_amount, test);
+                                        g.then(generate => {
+                                            if (generate["code"] === 200) {
+                                                url = generate["url"];
+                                                resolve();
+                                            } else {
+                                                reject("Rpc generateCashUrl: " + generate["code"]);
+                                            }
+                                        }).catch((e: Error) => {
+                                            reject(e);
+                                        });
+                                    } else {
+                                        reject("Rpc getCustomerId: " + payment["code"]);
+                                    }
+                                }).catch((e: Error) => {
+                                    reject(e);
+                                });
+                            } else {
+                                reject("Rpc getUserByUserId: " + profile["code"]);
+                            }
+                        }).catch((e: Error) => {
+                            reject(e);
+                        });
                     } else {
                         resolve();
                     }
                 });
-            } else {
-                reject("Hget cashout-entities error");
-                log.info("Hget cashout-entities error");
-            }
-        });
-    });
-    promises.push(predis);
-    let pevent = new Promise<void>((resolve, reject) => {
-        let result = cashout_events(db, cache, done, domain, cashout_entity, opid, user_id);
-        if (result) {
-            resolve();
-        } else {
-            reject("Cashout_events error");
-        }
-    });
-    promises.push(pevent);
-    let pbank = new Promise<void>((resolve, reject) => {
-        let test = process.env["WX_ENV"] === "test" ? true : false;
-        let p = rpc(domain, servermap["profile"], null, "getUserByUserId", user_id);
-        p.then(profile => {
-            if (profile["code"] === 200 && profile["data"]["pnrid"]) {
-                let b = rpc(domain, servermap["bank_payment"], null, "getCustomerId", profile["data"]["pnrid"]);
-                b.then(payment => {
-                    if (payment["code"] === 200 && payment["data"]["cid"]) {
-                        let g = rpc(domain, servermap["bank_payment"], null, "generateCashUr", cashout_entity["order_id"], payment["data"]["cid"], cashout_entity["amount"], test);
-                        g.then(generate => {
-                            if (generate["code"] === 200) {
-                                resolve();
-                            } else {
-                                reject("Rpc generateCashUrl: " + generate["code"]);
-                                log.info("Rpc generateCashUrl: " + generate["code"]);
-                            }
-                        }).catch((e: Error) => {
-                            reject(e);
-                            log.info(e)
-                        });
-                    } else {
-                        reject("Rpc getCustomerId: " + payment["code"]);
-                        log.info("Rpc getCustomerId: " + payment["code"]);
-                    }
-                }).catch((e: Error) => {
-                    reject(e);
-                    log.info(e);
+                pbank.then(() => {
+                    cache.hget("wallet-entities", user_id, (err, result) => {
+                        if (err) {
+                            log.info(err);
+                            errorDone(cache, done, cbflag, err);
+                        } else if (result) {
+                            cache.hget("orderid-vid", cashout_entity["order_id"], (err2, result2) => {
+                                if (err2) {
+                                    log.info(err2);
+                                    errorDone(cache, done, cbflag, err2);
+                                } else if (result2) {
+                                    let wallet = JSON.parse(result).map(e => e["vehicle"]["id"] === result2);
+                                    let lastWallets = JSON.parse(result).map(e => e["vehicle"]["id"] !== result2);
+                                    wallet["balance0"] = 0;
+                                    wallet["balance1"] = 0;
+                                    lastWallets.push(wallet);
+                                    cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
+                                        if (err3) {
+                                            errorDone(cache, done, cbflag, err3);
+                                        } else {
+                                            let o = rpc(domain, servermap["order"], null, "updateOrderState", cashout_entity["order_id"], 6, "待退款");
+                                            o.then((order) => {
+                                                if (order["code"] === 200) {
+                                                    cache.setex(cbflag, 30, JSON.stringify({
+                                                        code: 200,
+                                                        data: { id: coid, url: url }
+                                                    }), (err, result) => {
+                                                        done();
+                                                    });
+                                                } else {
+                                                    errorDone(cache, done, cbflag, order["code"]);
+                                                }
+                                            });
+                                        }
+                                    });
+                                } else {
+                                    log.info("Hget orderid-vid error");
+                                    errorDone(cache, done, cbflag, "Hget orderid-vid error");
+                                }
+                            });
+                        } else {
+                            log.info("Hget wallet-entities error");
+                            errorDone(cache, done, cbflag, "Hget wallet-entities error");
+                        }
+                    });
                 });
-            } else {
-                reject("Rpc getUserByUserId: " + profile["code"]);
-                log.info("Rpc getUserByUserId: " + profile["code"]);
-            }
-        }).catch((e: Error) => {
-            reject(e);
-            log.info(e);
+            });
         });
-    });
-    promises.push(pbank);
-    async_serial<void>(promises, [], () => {
-        cache.setex(cbflag, 30, JSON.stringify({
-            code: 200,
-            data: coid
-        }));
-        done();
-    },(e: Error) => {
-        log.info(e);
-        cache.setex(cbflag, 30, JSON.stringify({
-            code: 500,
-            msg: e.message
-        }));
-        done();
     });
 });
+
+function errorDone(cache: RedisClient, done: DoneFunction, cbflag: string, e) {
+    cache.setex(cbflag, 30, JSON.stringify({
+        code: 500,
+        msg: e.message
+    }), (err, result) => {
+        done();
+    });
+    log.info(e);
+}
 processor.run();
 console.log("Start processor at " + config.addr);

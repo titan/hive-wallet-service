@@ -34,7 +34,8 @@ let wallet_entities = "wallet-entities";
 let transactions = "transactions-";
 let config: Config = {
   svraddr: servermap["wallet"],
-  msgaddr: "ipc:///tmp/wallet.ipc"
+  msgaddr: "ipc:///tmp/wallet.ipc",
+  cacheaddr: process.env["CACHE_HOST"]
 };
 
 let svc = new Server(config);
@@ -153,7 +154,7 @@ svc.call("AgreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid
   }
   let callback = uuid.v1();
   let domain = ctx.domain;
-  ctx.msgqueue.send(msgpack.encode({ cmd: "ApplyCashOut", args: [domain, coid, state, opid, user_id, callback] }));
+  ctx.msgqueue.send(msgpack.encode({ cmd: "AgreeCashOut", args: [domain, coid, state, opid, user_id, callback] }));
   wait_for_response(ctx.cache, callback, rep);
 });
 
