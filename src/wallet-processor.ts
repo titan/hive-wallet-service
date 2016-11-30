@@ -79,6 +79,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                     let p = rpc(domain, servermap["vehicle"], null, "getVehicle", vid);
                                     p.then((v) => {
                                         if (err) {
+                                            done();
                                             log.info("call vehicle error");
                                         } else {
                                             cache.hget("wallet-entities", uid, function (err, result2) {
@@ -97,6 +98,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                                     multi.exec((err3, replies) => {
                                                         if (err3) {
                                                             log.error(err3, "query redis error");
+                                                            done();
                                                         } else {
                                                             log.info("placeAnDriverOrder:==========is done");
                                                             done(); // close db and cache connection
@@ -114,6 +116,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                                     multi.exec((err3, replies) => {
                                                         if (err3) {
                                                             log.error(err3, "query redis error");
+                                                            done();
                                                         } else {
                                                             log.info("placeAnDriverOrder:==========is done");
                                                             done(); // close db and cache connection
@@ -451,18 +454,19 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 let pbank = new Promise<void>((resolve, reject) => {
                     if (state === 1) {
                         let test = process.env["WX_ENV"] === "test" ? true : false;
-                        let p = rpc(domain, servermap["profile"], null, "getUserByUserId", user_id);
+                        let p = rpc(domain, servermap["profile"], user_id, "getUserByUserId", user_id);
                         p.then(profile => {
                             if (profile["code"] === 200 && profile["data"]["pnrid"]) {
-                                let b = rpc(domain, servermap["bank_payment"], null, "getCustomerId", profile["data"]["pnrid"]);
+                                let b = rpc(domain, servermap["bank_payment"], user_id, "getCustomerId", profile["data"]["pnrid"]);
                                 b.then(payment => {
                                     if (payment["code"] === 200) {
                                         let bank_amount = cashout_entity["amount"].toFixed(2).toString();
                                         log.info(cashout_entity["order_id"], payment["cid"], bank_amount, test);
-                                        let g = rpc(domain, servermap["bank_payment"], null, "generateCashUrl", order_no, payment["cid"], bank_amount, test);
+                                        let g = rpc(domain, servermap["bank_payment"], user_id, "generateCashUrl", order_no, payment["cid"], bank_amount, test);
                                         g.then(generate => {
                                             if (generate["code"] === 200) {
                                                 url = generate["url"];
+                                                log.info(url);
                                                 resolve();
                                             } else {
                                                 reject("Rpc generateCashUrl: " + generate["code"]);
@@ -498,18 +502,18 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                                         log.info(err2);
                                         errorDone(cache, done, cbflag, err2);
                                     } else if (result2) {
-                                        log.info(JSON.stringify(result));
-                                        let wallet = JSON.parse(result).map(e => e["vehicle"]["id"] === result2);
-                                        let lastWallets = JSON.parse(result).map(e => e["vehicle"]["id"] !== result2);
-                                        log.info(wallet, lastWallets);
+                                        let wallet = JSON.parse(result).filter(e => e["vehicle"]["id"] === result2);
+                                        let lastWallets = JSON.parse(result).filter(e => e["vehicle"]["id"] !== result2);
                                         wallet["balance0"] = 0;
                                         wallet["balance1"] = 0;
                                         lastWallets.push(wallet);
+                                        log.info(JSON.stringify(lastWallets));
                                         cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
                                             if (err3) {
+                                                log.info(err3);
                                                 errorDone(cache, done, cbflag, err3);
                                             } else {
-                                                let o = rpc(domain, servermap["order"], null, "updateOrderState", cashout_entity["order_id"], 6, "待退款");
+                                                let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
                                                 o.then((order) => {
                                                     if (order["code"] === 200) {
                                                         cache.setex(cbflag, 30, JSON.stringify({
@@ -542,9 +546,17 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                             done();
                         });
                     }
+                }).catch(e => {
+                    log.info(e);
                 });
+            }).catch(e => {
+                log.info(e);
             });
+        }).catch(e => {
+            log.info(e);
         });
+    }).catch(e => {
+        log.info(e);
     });
 });
 
