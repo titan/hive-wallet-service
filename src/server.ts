@@ -120,7 +120,10 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
 //   // ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
 //   rep({ code: 200, status: "200" });
 // });
-
+svc.call("refresh", permissions, (ctx: Context, rep: ResponseFunction) => {
+  ctx.msgqueue.send(msgpack.encode({ cmd: "refresh", args: [] }));
+  rep({ code: 200, data: "200" });
+});
 console.log("Start service at " + config.svraddr);
 
 svc.run();
