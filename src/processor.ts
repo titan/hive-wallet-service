@@ -6,7 +6,8 @@ import * as bunyan from "bunyan";
 import { servermap, triggermap } from "hive-hostmap";
 import * as uuid from "node-uuid";
 import * as uuid_1 from "uuid-1345";
-
+import * as queryString from "querystring";
+import * as http from "http"
 let log = bunyan.createLogger({
     name: "wallet-processor",
     streams: [
@@ -215,8 +216,8 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
     });
 });
 
-processor.call("ApplyCashOut", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, order_id: string, user_id: string, cbflag: string) => {
-    log.info("ApplyCashOut");
+processor.call("applyCashOut", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, order_id: string, user_id: string, cbflag: string) => {
+    log.info("applyCashOut");
     let date = new Date();
     let year = date.getFullYear();
     let month = (date.getMonth() + 1) < 10 ? "0" + (date.getMonth() + 1) : (date.getMonth() + 1);
@@ -338,7 +339,7 @@ processor.call("ApplyCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 log.info("enter cashout events");
                 cashout_events(db, cache, done, domain, cashout_entity, user_id, user_id, (cb) => {
                     if (cb) {
-                        log.info("ApplyCashOut success");
+                        log.info("applyCashOut success");
                         cache.setex(cbflag, 30, JSON.stringify({
                             code: 200,
                             data: coid
@@ -346,7 +347,7 @@ processor.call("ApplyCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                             done();
                         });
                     } else {
-                        log.info("ApplyCashOut failed");
+                        log.info("applyCashOut failed");
                         cache.setex(cbflag, 30, JSON.stringify({
                             code: 500,
                             msg: "error"
@@ -378,8 +379,8 @@ function cashout_events(db: PGClient, cache: RedisClient, done: DoneFunction, do
     });
 }
 
-processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, coid: string, state: number, opid: string, user_id: string, cbflag: string) => {
-    log.info("AgreeCashOut");
+processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, coid: string, state: number, opid: string, user_id: string, cbflag: string) => {
+    log.info("agreeCashOut");
     let date = new Date();
     let cashout_entity = {};
     let order_no = "";
@@ -492,52 +493,94 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 });
                 pbank.then(() => {
                     if (state === 1) {
-                        cache.hget("wallet-entities", user_id, (err, result) => {
-                            if (err) {
-                                log.info(err);
-                                errorDone(cache, done, cbflag, err);
-                            } else if (result) {
-                                cache.hget("orderid-vid", cashout_entity["order_id"], (err2, result2) => {
-                                    if (err2) {
-                                        log.info(err2);
-                                        errorDone(cache, done, cbflag, err2);
-                                    } else if (result2) {
-                                        let wallet = JSON.parse(result).filter(e => e["vehicle"]["id"] === result2);
-                                        let lastWallets = JSON.parse(result).filter(e => e["vehicle"]["id"] !== result2);
-                                        wallet["balance0"] = 0;
-                                        wallet["balance1"] = 0;
-                                        lastWallets.push(wallet);
-                                        log.info(JSON.stringify(lastWallets));
-                                        cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
-                                            if (err3) {
-                                                log.info(err3);
-                                                errorDone(cache, done, cbflag, err3);
-                                            } else {
-                                                let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
-                                                o.then((order) => {
-                                                    if (order["code"] === 200) {
-                                                        cache.setex(cbflag, 30, JSON.stringify({
-                                                            code: 200,
-                                                            data: { id: coid, url: url }
-                                                        }), (err, result) => {
-                                                            done();
-                                                        });
-                                                    } else {
-                                                        errorDone(cache, done, cbflag, order["code"]);
-                                                    }
-                                                });
-                                            }
-                                        });
-                                    } else {
-                                        log.info("Hget orderid-vid error");
-                                        errorDone(cache, done, cbflag, "Hget orderid-vid error");
-                                    }
+                        let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
+                        o.then((order) => {
+                            if (order["code"] === 200) {
+                                let postData = queryString.stringify({
+                                    "amount": cashout_entity["amount"], 
+                                    "url": url
                                 });
+                                let options = {
+                                    hostname: wxhost,
+                                    port: 80,
+                                    path: "/wx/wxpay/tmsgUnderwriting",
+                                    method: "GET",
+                                    headers: {
+                                        "Content-Type": "application/x-www-form-urlencoded",
+                                        "Content-Length": Buffer.byteLength(postData)
+                                    }
+                                };
+                                let req = http.request(options, (res) => {
+                                    log.info(`STATUS: ${res.statusCode}`);
+                                    res.setEncoding("utf8");
+                                    res.on("data", (chunk) => {
+                                        log.info(`BODY: ${chunk}`);
+                                    });
+                                    res.on("end", () => {
+                                        log.info("agreeCashOut success");
+                                        cache.setex(cbflag, 30, JSON.stringify({
+                                            code: 200,
+                                            coid: coid 
+                                        }), (err, result) => {
+                                            done();
+                                        });
+                                    });
+                                });
+                                req.on("error", (e) => {
+                                    log.info(`problem with request: ${e.message}`);
+                                });
+                                req.write(postData);
+                                req.end();
                             } else {
-                                log.info("Hget wallet-entities error");
-                                errorDone(cache, done, cbflag, "Hget wallet-entities error");
+                                errorDone(cache, done, cbflag, JSON.stringify(order));
                             }
                         });
+                        // cache.hget("wallet-entities", user_id, (err, result) => {
+                        //     if (err) {
+                        //         log.info(err);
+                        //         errorDone(cache, done, cbflag, err);
+                        //     } else if (result) {
+                        //         cache.hget("orderid-vid", cashout_entity["order_id"], (err2, result2) => {
+                        //             if (err2) {
+                        //                 log.info(err2);
+                        //                 errorDone(cache, done, cbflag, err2);
+                        //             } else if (result2) {
+                        //                 let wallet = JSON.parse(result).filter(e => e["vehicle"]["id"] === result2);
+                        //                 let lastWallets = JSON.parse(result).filter(e => e["vehicle"]["id"] !== result2);
+                        //                 wallet["balance0"] = 0;
+                        //                 wallet["balance1"] = 0;
+                        //                 lastWallets.push(wallet);
+                        //                 log.info(JSON.stringify(lastWallets));
+                        //                 cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
+                        //                     if (err3) {
+                        //                         log.info(err3);
+                        //                         errorDone(cache, done, cbflag, err3);
+                        //                     } else {
+                        //                         let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
+                        //                         o.then((order) => {
+                        //                             if (order["code"] === 200) {
+                        //                                 cache.setex(cbflag, 30, JSON.stringify({
+                        //                                     code: 200,
+                        //                                     data: { id: coid, url: url }
+                        //                                 }), (err, result) => {
+                        //                                     done();
+                        //                                 });
+                        //                             } else {
+                        //                                 errorDone(cache, done, cbflag, JSON.stringify(order));
+                        //                             }
+                        //                         });
+                        //                     }
+                        //                 });
+                        //             } else {
+                        //                 log.info("Hget orderid-vid error");
+                        //                 errorDone(cache, done, cbflag, "Hget orderid-vid error");
+                        //             }
+                        //         });
+                        //     } else {
+                        //         log.info("Hget wallet-entities error");
+                        //         errorDone(cache, done, cbflag, "Hget wallet-entities error");
+                        //     }
+                        // });
                     } else {
                         cache.setex(cbflag, 30, JSON.stringify({
                             code: 200,
@@ -551,12 +594,15 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 });
             }).catch(e => {
                 log.info(e);
+                errorDone(cache, done, cbflag, e);
             });
         }).catch(e => {
             log.info(e);
+            errorDone(cache, done, cbflag, e);
         });
     }).catch(e => {
         log.info(e);
+        errorDone(cache, done, cbflag, e);
     });
 });
 
