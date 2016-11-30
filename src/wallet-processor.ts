@@ -492,52 +492,66 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 });
                 pbank.then(() => {
                     if (state === 1) {
-                        cache.hget("wallet-entities", user_id, (err, result) => {
-                            if (err) {
-                                log.info(err);
-                                errorDone(cache, done, cbflag, err);
-                            } else if (result) {
-                                cache.hget("orderid-vid", cashout_entity["order_id"], (err2, result2) => {
-                                    if (err2) {
-                                        log.info(err2);
-                                        errorDone(cache, done, cbflag, err2);
-                                    } else if (result2) {
-                                        let wallet = JSON.parse(result).filter(e => e["vehicle"]["id"] === result2);
-                                        let lastWallets = JSON.parse(result).filter(e => e["vehicle"]["id"] !== result2);
-                                        wallet["balance0"] = 0;
-                                        wallet["balance1"] = 0;
-                                        lastWallets.push(wallet);
-                                        log.info(JSON.stringify(lastWallets));
-                                        cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
-                                            if (err3) {
-                                                log.info(err3);
-                                                errorDone(cache, done, cbflag, err3);
-                                            } else {
-                                                let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
-                                                o.then((order) => {
-                                                    if (order["code"] === 200) {
-                                                        cache.setex(cbflag, 30, JSON.stringify({
-                                                            code: 200,
-                                                            data: { id: coid, url: url }
-                                                        }), (err, result) => {
-                                                            done();
-                                                        });
-                                                    } else {
-                                                        errorDone(cache, done, cbflag, order["code"]);
-                                                    }
-                                                });
-                                            }
-                                        });
-                                    } else {
-                                        log.info("Hget orderid-vid error");
-                                        errorDone(cache, done, cbflag, "Hget orderid-vid error");
-                                    }
+                        let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
+                        o.then((order) => {
+                            if (order["code"] === 200) {
+                                cache.setex(cbflag, 30, JSON.stringify({
+                                    code: 200,
+                                    data: { id: coid, url: url }
+                                }), (err, result) => {
+                                    log.info("AgreeCashOut success");
+                                    done();
                                 });
                             } else {
-                                log.info("Hget wallet-entities error");
-                                errorDone(cache, done, cbflag, "Hget wallet-entities error");
+                                errorDone(cache, done, cbflag, JSON.stringify(order));
                             }
                         });
+                        // cache.hget("wallet-entities", user_id, (err, result) => {
+                        //     if (err) {
+                        //         log.info(err);
+                        //         errorDone(cache, done, cbflag, err);
+                        //     } else if (result) {
+                        //         cache.hget("orderid-vid", cashout_entity["order_id"], (err2, result2) => {
+                        //             if (err2) {
+                        //                 log.info(err2);
+                        //                 errorDone(cache, done, cbflag, err2);
+                        //             } else if (result2) {
+                        //                 let wallet = JSON.parse(result).filter(e => e["vehicle"]["id"] === result2);
+                        //                 let lastWallets = JSON.parse(result).filter(e => e["vehicle"]["id"] !== result2);
+                        //                 wallet["balance0"] = 0;
+                        //                 wallet["balance1"] = 0;
+                        //                 lastWallets.push(wallet);
+                        //                 log.info(JSON.stringify(lastWallets));
+                        //                 cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
+                        //                     if (err3) {
+                        //                         log.info(err3);
+                        //                         errorDone(cache, done, cbflag, err3);
+                        //                     } else {
+                        //                         let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
+                        //                         o.then((order) => {
+                        //                             if (order["code"] === 200) {
+                        //                                 cache.setex(cbflag, 30, JSON.stringify({
+                        //                                     code: 200,
+                        //                                     data: { id: coid, url: url }
+                        //                                 }), (err, result) => {
+                        //                                     done();
+                        //                                 });
+                        //                             } else {
+                        //                                 errorDone(cache, done, cbflag, JSON.stringify(order));
+                        //                             }
+                        //                         });
+                        //                     }
+                        //                 });
+                        //             } else {
+                        //                 log.info("Hget orderid-vid error");
+                        //                 errorDone(cache, done, cbflag, "Hget orderid-vid error");
+                        //             }
+                        //         });
+                        //     } else {
+                        //         log.info("Hget wallet-entities error");
+                        //         errorDone(cache, done, cbflag, "Hget wallet-entities error");
+                        //     }
+                        // });
                     } else {
                         cache.setex(cbflag, 30, JSON.stringify({
                             code: 200,
@@ -551,12 +565,15 @@ processor.call("AgreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 });
             }).catch(e => {
                 log.info(e);
+                errorDone(cache, done, cbflag, e);
             });
         }).catch(e => {
             log.info(e);
+            errorDone(cache, done, cbflag, e);
         });
     }).catch(e => {
         log.info(e);
+        errorDone(cache, done, cbflag, e);
     });
 });
 
