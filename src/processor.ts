@@ -2,9 +2,12 @@
 import { Processor, Config, ModuleFunction, DoneFunction, rpc, async_serial, async_serial_ignore } from "hive-processor";
 import { Client as PGClient, QueryResult } from "pg";
 import { RedisClient, Multi } from "redis";
-import * as bunyan from "bunyan";
 import { servermap, triggermap } from "hive-hostmap";
+import * as bunyan from "bunyan";
 import * as uuid from "node-uuid";
+import * as msgpack from "msgpack-lite";
+import * as nanomsg from "nanomsg";
+import {CustomerMessage} from "recommend-library";
 import * as UUID from "uuid-1345";
 import * as queryString from "querystring";
 import * as http from "http";
@@ -96,11 +99,11 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                             done();
                                             log.info("call vehicle error");
                                         } else {
-                                            cache.hget("wallet-entities", uid, function(err, result2) {
+                                            cache.hget("wallet-entities", uid, function (err, result2) {
                                                 if (err) {
                                                     log.info("get wallete-entities err");
                                                     done();
-                                                } else if (result2 == "") {
+                                                } else if (result2 === "" || result2 === null) {
                                                     let accounts = [];
                                                     let vehicle = v["data"];
                                                     let multi = cache.multi();
@@ -132,7 +135,7 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                                             log.error(err3, "query redis error");
                                                             done();
                                                         } else {
-                                                            log.info("placeAnDriverOrder:==========is done");
+                                                            log.info("==========is done");
                                                             done(); // close db and cache connection
                                                         }
                                                     });
@@ -229,6 +232,134 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
     });
 });
 
+function refresh_wallets(db: PGClient, cache: RedisClient, done: DoneFunction, domain: string): Promise<void> {
+    return sync_wallets(db, cache, done, domain);
+}
+function sync_wallets(db: PGClient, cache: RedisClient, done: DoneFunction, domain: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        db.query("SELECT id, uid, type, vid, balance0, balance1, created_at, updated_at FROM accounts WHERE deleted = false", [], (err, result) => {
+            if (err) {
+                log.info(err);
+                reject(err);
+            } else {
+                const allaccounts = [];
+                const vids = [];
+                // let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
+                for (let row of result.rows) {
+                    let account = {
+                        balance0: row.balance0,
+                        balance1: row.balance1,
+                        id: row.id,
+                        uid: null,
+                        type: row.type,
+                        vehicle: null
+                    }
+                    vids.push(row.id);
+                    allaccounts.push(account);
+                }
+                let wvs = vids.map(vid => rpc<Object>(domain, servermap["vehicle"], null, "getVehicle", vid));
+                async_serial_ignore<Object>(wvs, [], (vreps) => {
+                    const vehicles = vreps.filter(v => v["code"] === 200).map(v => v["data"]);
+                    for (const vehicle of vehicles) {
+                        for (const account of allaccounts) {
+                            if (vehicle["id"] === account["id"]) {
+                                account["vehicle"] = vehicle;
+                                account["uid"] = vehicle["user_id"];
+                            }
+                        }
+                    }
+                });
+                let wallets: Object = {};
+                const new_wallets: Object[] = [];
+                wallets = allaccounts.reduce((acc, account) => {
+                    const uid = account["uid"];
+                    if (acc[uid]) {
+                        acc[uid].push(account);
+                    } else {
+                        acc[uid] = [account];
+                    }
+                    return acc;
+                }, {});
+                for (let wallet in wallets) {
+                    new_wallets.push(wallets[wallet]);
+                }
+                let multi = cache.multi();
+                for (let new_wallet of new_wallets) {
+                    multi.hset("wallet-entities", new_wallet["uid"], JSON.stringify(new_wallet));
+                }
+                multi.exec((err, result) => {
+                    if (err) {
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            }
+        });
+    });
+}
+function refresh_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, domain: string) {
+    return sync_transitions(db, cache, done, domain);
+}
+function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, domain: string): Promise<void> {
+    return new Promise<void>((resolve, reject) => {
+        //let transactions = { amount: balance, occurred_at: created_at1, aid: vid, id: uid, title: title, type: type1 }; 
+        db.query("SELECT id, aid, type, title, amount, occurred_at FROM transactions", [], (err, result) => {
+            if (err) {
+                log.info(err);
+                reject(err);
+            } else {
+                const transactions = [];
+                const vids = [];
+                for (let row of result.rows) {
+                    let transaction = {
+                        id: null,
+                        amount: row.amount,
+                        occurred_at: row.occurred_at.toLocaleString,
+                        aid: row.aid,
+                        title: row.title,
+                        type: row.type
+                    }
+                    vids.push(row.aid);
+                    transactions.push(transaction);
+                }
+                let tvs = vids.map(vid => rpc<Object>(domain, servermap["vehicle"], null, "getVehicle", vid));
+                async_serial_ignore<Object>(tvs, [], (vreps) => {
+                    const vehicles = vreps.filter(v => v["code"] === 200).map(v => v["data"]);
+                    for (const vehicle of vehicles) {
+                        for (const transaction of transactions) {
+                            if (vehicle["id"] === transaction["aid"]) {
+                                transaction["id"] = vehicle["user_id"];
+                            }
+                        }
+                    }
+                });
+                let multi = cache.multi();
+                for (let transaction of transactions) {
+                    multi.zadd("transactions-" + transaction["id"], (new Date().getTime()), JSON.stringify(transaction));
+                }
+                multi.exec((err, result) => {
+                    if (err) {
+                        log.info(err);
+                        reject(err);
+                    } else {
+                        resolve();
+                    }
+                });
+            }
+        });
+    });
+}
+
+processor.call("refresh", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: string) => {
+    const RW = refresh_wallets(db, cache, done, domain);
+    const RT = refresh_transitions(db, cache, done, domain);
+    let ps = [RW, RT];
+    async_serial_ignore<void>(ps, [], () => {
+        log.info("refresh done!");
+        done();
+    });
+});
 processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFunction, domain: any, order_id: string, user_id: string, cbflag: string) => {
     log.info("applyCashOut");
     const cache = bluebird.promisifyAll(cache1) as RedisClient;
