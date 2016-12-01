@@ -1,4 +1,4 @@
-import { Server, Config, Context, ResponseFunction, Permission } from "hive-server";
+import { Server, Config, Context, ResponseFunction, Permission, rpc, wait_for_response } from "hive-server";
 import * as Redis from "redis";
 import * as nanomsg from "nanomsg";
 import * as msgpack from "msgpack-lite";
@@ -34,7 +34,8 @@ let wallet_entities = "wallet-entities";
 let transactions = "transactions-";
 let config: Config = {
   svraddr: servermap["wallet"],
-  msgaddr: "ipc:///tmp/wallet.ipc"
+  msgaddr: "ipc:///tmp/wallet.ipc",
+  cacheaddr: process.env["CACHE_HOST"]
 };
 
 let svc = new Server(config);
@@ -120,10 +121,50 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
 //   // ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
 //   rep({ code: 200, status: "200" });
 // });
+<<<<<<< HEAD
 svc.call("refresh", permissions, (ctx: Context, rep: ResponseFunction) => {
   ctx.msgqueue.send(msgpack.encode({ cmd: "refresh", args: [] }));
   rep({ code: 200, data: "200" });
 });
+=======
+
+svc.call("applyCashOut", permissions, (ctx: Context, rep: ResponseFunction, order_id: string) => {
+  log.info("applyCashOut uuid is " + ctx.uid);
+  let user_id = ctx.uid;
+  if (!verify([uuidVerifier("order_id", order_id), uuidVerifier("user_id", user_id)], (errors: string[]) => {
+    log.info(errors);
+    rep({
+      code: 400,
+      msg: errors.join("\n")
+    });
+  })) {
+    return;
+  }
+  let callback = uuid.v1();
+  let domain = ctx.domain;
+  ctx.msgqueue.send(msgpack.encode({ cmd: "applyCashOut", args: [domain, order_id, user_id, callback] }));
+  wait_for_response(ctx.cache, callback, rep);
+});
+
+svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, opid) => {
+  log.info("agreeCashOut uuid is " + ctx.uid);
+  let user_id = ctx.uid;
+  if (!verify([uuidVerifier("coid", coid), uuidVerifier("user_id", user_id)], (errors: string[]) => {
+    log.info(errors);
+    rep({
+      code: 400,
+      msg: errors.join("\n")
+    });
+  })) {
+    return;
+  }
+  let callback = uuid.v1();
+  let domain = ctx.domain;
+  ctx.msgqueue.send(msgpack.encode({ cmd: "agreeCashOut", args: [domain, coid, state, opid, user_id, callback] }));
+  wait_for_response(ctx.cache, callback, rep);
+});
+
+>>>>>>> upstream/master
 console.log("Start service at " + config.svraddr);
 
 svc.run();
