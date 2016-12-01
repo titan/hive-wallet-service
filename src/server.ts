@@ -122,8 +122,8 @@ svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFuncti
 //   rep({ code: 200, status: "200" });
 // });
 
-svc.call("ApplyCashOut", permissions, (ctx: Context, rep: ResponseFunction, order_id: string) => {
-  log.info("ApplyCashOut uuid is " + ctx.uid);
+svc.call("applyCashOut", permissions, (ctx: Context, rep: ResponseFunction, order_id: string) => {
+  log.info("applyCashOut uuid is " + ctx.uid);
   let user_id = ctx.uid;
   if (!verify([uuidVerifier("order_id", order_id), uuidVerifier("user_id", user_id)], (errors: string[]) => {
     log.info(errors);
@@ -136,12 +136,12 @@ svc.call("ApplyCashOut", permissions, (ctx: Context, rep: ResponseFunction, orde
   }
   let callback = uuid.v1();
   let domain = ctx.domain;
-  ctx.msgqueue.send(msgpack.encode({ cmd: "ApplyCashOut", args: [domain, order_id, user_id, callback] }));
+  ctx.msgqueue.send(msgpack.encode({ cmd: "applyCashOut", args: [domain, order_id, user_id, callback] }));
   wait_for_response(ctx.cache, callback, rep);
 });
 
-svc.call("AgreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, opid) => {
-  log.info("AgreeCashOut uuid is " + ctx.uid);
+svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, opid) => {
+  log.info("agreeCashOut uuid is " + ctx.uid);
   let user_id = ctx.uid;
   if (!verify([uuidVerifier("coid", coid), uuidVerifier("user_id", user_id)], (errors: string[]) => {
     log.info(errors);
@@ -154,7 +154,7 @@ svc.call("AgreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid
   }
   let callback = uuid.v1();
   let domain = ctx.domain;
-  ctx.msgqueue.send(msgpack.encode({ cmd: "AgreeCashOut", args: [domain, coid, state, opid, user_id, callback] }));
+  ctx.msgqueue.send(msgpack.encode({ cmd: "agreeCashOut", args: [domain, coid, state, opid, user_id, callback] }));
   wait_for_response(ctx.cache, callback, rep);
 });
 

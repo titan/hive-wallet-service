@@ -229,11 +229,9 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
     });
 });
 
-processor.call("ApplyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFunction, domain: any, order_id: string, user_id: string, cbflag: string) => {
-    log.info("ApplyCashOut");
-
+processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFunction, domain: any, order_id: string, user_id: string, cbflag: string) => {
+    log.info("applyCashOut");
     const cache = bluebird.promisifyAll(cache1) as RedisClient;
-
     let date = new Date();
     let year = date.getFullYear();
     let month = (date.getMonth() + 1) < 10 ? "0" + (date.getMonth() + 1) : (date.getMonth() + 1);
@@ -279,141 +277,6 @@ processor.call("ApplyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
         await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 500, msg: e.message }));
       }
     })();
-
-    /*
-    let pcounter = new Promise<void>((resolve, reject) => {
-        cache.hget("cashout-counter", dateString, (err, result) => {
-            if (err) {
-                log.info(err);
-                reject(err);
-            } else if (result === null || result == "" || result == undefined) {
-                cache.hset("cashout-counter", dateString, 1, (err2, result2) => {
-                    if (err2) {
-                        log.info(err2);
-                        reject(err2);
-                    } else if (result2) {
-                        cash_no += "0001";
-                        resolve();
-                        log.info("Cash_no is " + cash_no);
-                    } else {
-                        log.info("Hset cashout-counter error");
-                        reject("Hset cashout-counter error");
-                    }
-                });
-            } else {
-                cache.hincrby("cashout-counter", dateString, 1, (err3, result3) => {
-                    if (err3) {
-                        log.info(err3);
-                        reject(err3);
-                    } else if (result3) {
-                        for (let i = 0; i < 4 - result3.toString().length; i++) {
-                            cash_no += "0";
-                        }
-                        cash_no += result3.toString();
-                        resolve();
-                        log.info("Cash_no is " + cash_no);
-                    } else {
-                        log.info("Hincrby cashout-counter error");
-                        reject("Hincrby cashout-counter error");
-                    }
-                });
-            }
-        });
-    });
-
-    pcounter.then(() => {
-      let pamount = new Promise<void>((resolve, reject) => {
-        cache.hget("wallet-entities", user_id, (err, result) => {
-          if (err) {
-            log.info(err);
-            reject(err);
-          } else if (result) {
-            cache.hget("orderid-vid", order_id, (err2, result2) => {
-              if (err2) {
-                log.info(err2);
-                reject(err2);
-              } else if (result2) {
-                log.info("result2=========" + result2);
-                for (let wallet of JSON.parse(result)) {
-                  if (wallet["vehicle"]["id"] === result2) {
-                    amount = wallet["balance0"] + wallet["balance1"];
-                    log.info("amount is " + amount);
-                    break;
-                  }
-                }
-                resolve();
-              } else {
-                log.info("Hget orderid-vid error");
-                reject("Hget orderid-vid  error");
-              }
-            });
-          } else {
-            log.info("Hget wallet-entities error");
-            reject("Hget wallet-entities error");
-          }
-        });
-      });
-      pamount.then(() => {
-        log.info("enter pcash");
-        let pcash = new Promise<void>((resolve, reject) => {
-          log.info("amount is " + amount);
-          db.query("INSERT INTO cashout(id, no, state, amount, order_id) VALUES($1, $2, $3, $4, $5)", [coid, cash_no, state, amount, order_id], (err, result) => {
-            if (err) {
-              log.info(err, "Error on INSERT INTO 'cashout_events'");
-              reject(err);
-            } else {
-              cashout_entity = {
-                id: coid,
-                no: cash_no,
-                state: state,
-                amount: amount,
-                reason: "",
-                order_id: order_id,
-                last_event_id: "",
-                created_at: date,
-                updated_at: date
-              };
-              log.info(cashout_entity);
-              let multi = cache.multi();
-              multi.hset("cashout-entities", coid, JSON.stringify(cashout_entity));
-              multi.zadd("applied-cashouts", date.getTime(), coid);
-              multi.exec((err2, result2) => {
-                if (err2) {
-                  log.info(err2);
-                  reject(err2);
-                } else {
-                  log.info(result2);
-                  resolve();
-                }
-              });
-            }
-          });
-        });
-        pcash.then(() => {
-          log.info("enter cashout events");
-          cashout_events(db, cache, done, domain, cashout_entity, user_id, user_id, (cb) => {
-            if (cb) {
-              log.info("applyCashOut success");
-              cache.setex(cbflag, 30, JSON.stringify({
-                code: 200,
-                data: coid
-              }), (err, result) => {
-                done();
-              });
-            } else {
-              log.info("applyCashOut failed");
-              cache.setex(cbflag, 30, JSON.stringify({
-                code: 500,
-                msg: "error"
-              }), (err, result) => {
-                done();
-              });
-            }
-          });
-        });
-      });
-    });
-      */
 });
 
 async function cashout_events_async(db: PGClient, cache: RedisClient, cashout_entity: Object, opid: string, user_id: string) {
@@ -570,87 +433,65 @@ processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                   "amount": cashout_entity["amount"],
                   "url": url
                 });
-                let options = {
-                  hostname: wxhost,
-                  port: 80,
-                  path: "/wx/wxpay/tmsgUnderwriting",
-                  method: "GET",
-                  headers: {
-                    "Content-Type": "application/x-www-form-urlencoded",
-                    "Content-Length": Buffer.byteLength(postData)
-                  }
-                };
-                let req = http.request(options, (res) => {
-                  log.info(`STATUS: ${res.statusCode}`);
-                  res.setEncoding("utf8");
-                  res.on("data", (chunk) => {
-                    log.info(`BODY: ${chunk}`);
-                  });
-                  res.on("end", () => {
-                    log.info("agreeCashOut success");
-                    cache.setex(cbflag, 30, JSON.stringify({
-                      code: 200,
-                      coid: coid
-                    }), (err, result) => {
-                      done();
-                    });
-                  });
+                pbank.then(() => {
+                    if (state === 1) {
+                        let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
+                        o.then((order) => {
+                            if (order["code"] === 200) {
+                                let postData = queryString.stringify({
+                                    "amount": cashout_entity["amount"], 
+                                    "url": url
+                                });
+                                let options = {
+                                    hostname: wxhost,
+                                    port: 80,
+                                    path: "/wx/wxpay/tmsgCashOut",
+                                    method: "GET",
+                                    headers: {
+                                        "Content-Type": "application/x-www-form-urlencoded",
+                                        "Content-Length": Buffer.byteLength(postData)
+                                    }
+                                };
+                                let req = http.request(options, (res) => {
+                                    log.info(`STATUS: ${res.statusCode}`);
+                                    res.setEncoding("utf8");
+                                    res.on("data", (chunk) => {
+                                        log.info(`BODY: ${chunk}`);
+                                    });
+                                    res.on("end", () => {
+                                        log.info("agreeCashOut success");
+                                        cache.setex(cbflag, 30, JSON.stringify({
+                                            code: 200,
+                                            coid: coid 
+                                        }), (err, result) => {
+                                            done();
+                                        });
+                                    });
+                                });
+                                req.on("error", (e) => {
+                                    log.info(`problem with request: ${e.message}`);
+                                });
+                                req.write(postData);
+                                req.end();
+                            } else {
+                                errorDone(cache, done, cbflag, JSON.stringify(order));
+                            }
+                        });
+                    } else {
+                        cache.setex(cbflag, 30, JSON.stringify({
+                            code: 200,
+                            data: coid
+                        }), (err, result) => {
+                            done();
+                        });
+                    }
+                }).catch(e => {
+                    log.info(e);
                 });
-                req.on("error", (e) => {
-                  log.info(`problem with request: ${e.message}`);
-                });
-                req.write(postData);
-                req.end();
               } else {
                 errorDone(cache, done, cbflag, JSON.stringify(order));
               }
             });
-            // cache.hget("wallet-entities", user_id, (err, result) => {
-            //     if (err) {
-            //         log.info(err);
-            //         errorDone(cache, done, cbflag, err);
-            //     } else if (result) {
-            //         cache.hget("orderid-vid", cashout_entity["order_id"], (err2, result2) => {
-            //             if (err2) {
-            //                 log.info(err2);
-            //                 errorDone(cache, done, cbflag, err2);
-            //             } else if (result2) {
-            //                 let wallet = JSON.parse(result).filter(e => e["vehicle"]["id"] === result2);
-            //                 let lastWallets = JSON.parse(result).filter(e => e["vehicle"]["id"] !== result2);
-            //                 wallet["balance0"] = 0;
-            //                 wallet["balance1"] = 0;
-            //                 lastWallets.push(wallet);
-            //                 log.info(JSON.stringify(lastWallets));
-            //                 cache.hset("wallet-entities", user_id, JSON.stringify(lastWallets), (err3, result3) => {
-            //                     if (err3) {
-            //                         log.info(err3);
-            //                         errorDone(cache, done, cbflag, err3);
-            //                     } else {
-            //                         let o = rpc(domain, servermap["order"], user_id, "updateOrderState", user_id, order_no, 6, "待退款");
-            //                         o.then((order) => {
-            //                             if (order["code"] === 200) {
-            //                                 cache.setex(cbflag, 30, JSON.stringify({
-            //                                     code: 200,
-            //                                     data: { id: coid, url: url }
-            //                                 }), (err, result) => {
-            //                                     done();
-            //                                 });
-            //                             } else {
-            //                                 errorDone(cache, done, cbflag, JSON.stringify(order));
-            //                             }
-            //                         });
-            //                     }
-            //                 });
-            //             } else {
-            //                 log.info("Hget orderid-vid error");
-            //                 errorDone(cache, done, cbflag, "Hget orderid-vid error");
-            //             }
-            //         });
-            //     } else {
-            //         log.info("Hget wallet-entities error");
-            //         errorDone(cache, done, cbflag, "Hget wallet-entities error");
-            //     }
-            // });
           } else {
             cache.setex(cbflag, 30, JSON.stringify({
               code: 200,
