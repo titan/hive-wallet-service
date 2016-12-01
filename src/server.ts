@@ -144,9 +144,8 @@ svc.call("applyCashOut", permissions, (ctx: Context, rep: ResponseFunction, orde
   wait_for_response(ctx.cache, callback, rep);
 });
 
-svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, opid) => {
+svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, user_id:string, opid:string) => {
   log.info("agreeCashOut uuid is " + ctx.uid);
-  let user_id = ctx.uid;
   if (!verify([uuidVerifier("coid", coid), uuidVerifier("user_id", user_id)], (errors: string[]) => {
     log.info(errors);
     rep({
