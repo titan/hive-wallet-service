@@ -503,7 +503,7 @@ processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                                 let options = {
                                     hostname: wxhost,
                                     port: 80,
-                                    path: "/wx/wxpay/tmsgUnderwriting",
+                                    path: "/wx/wxpay/tmsgCashOut",
                                     method: "GET",
                                     headers: {
                                         "Content-Type": "application/x-www-form-urlencoded",
