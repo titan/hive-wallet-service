@@ -13,7 +13,7 @@ import * as queryString from "querystring";
 import * as http from "http";
 import * as bluebird from "bluebird";
 
-declare module 'redis' {
+declare module "redis" {
     export interface RedisClient extends NodeJS.EventEmitter {
         hgetAsync(key: string, field: string): Promise<any>;
         hincrbyAsync(key: string, field: string, value: number): Promise<any>;
@@ -53,7 +53,7 @@ let config: Config = {
     cachehost: process.env["CACHE_HOST"],
     addr: "ipc:///tmp/wallet.ipc"
 };
-let wxhost = process.env["WX_ENV"] === "test" ? "dev.fengchaohuzhu.com" : "m.fengchaohuzhu.com"
+let wxhost = process.env["WX_ENV"] === "test" ? "dev.fengchaohuzhu.com" : "m.fengchaohuzhu.com";
 
 function getLocalTime(nS) {
     return new Date(parseInt(nS) * 1000).toLocaleString().replace(/:\d{1,2}$/, " ");
@@ -247,13 +247,13 @@ function sync_wallets(db: PGClient, cache: RedisClient, done: DoneFunction, doma
                 // let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
                 for (let row of result.rows) {
                     let account = {
-                        balance0: row.balance0,
-                        balance1: row.balance1,
+                        balance0: parseFloat(row.balance0),
+                        balance1: parseFloat(row.balance1),
                         id: row.id,
                         uid: null,
                         type: row.type,
                         vehicle: null
-                    }
+                    };
                     vids.push(row.id);
                     allaccounts.push(account);
                 }
@@ -268,31 +268,31 @@ function sync_wallets(db: PGClient, cache: RedisClient, done: DoneFunction, doma
                             }
                         }
                     }
-                });
-                let wallets: Object = {};
-                const new_wallets: Object[] = [];
-                wallets = allaccounts.reduce((acc, account) => {
-                    const uid = account["uid"];
-                    if (acc[uid]) {
-                        acc[uid].push(account);
-                    } else {
-                        acc[uid] = [account];
+                    let wallets: Object = {};
+                    const new_wallets: Object[] = [];
+                    wallets = allaccounts.reduce((acc, account) => {
+                        const uid = account["uid"];
+                        if (acc[uid]) {
+                            acc[uid].push(account);
+                        } else {
+                            acc[uid] = [account];
+                        }
+                        return acc;
+                    }, {});
+                    for (let wallet in wallets) {
+                        new_wallets.push(wallets[wallet]);
                     }
-                    return acc;
-                }, {});
-                for (let wallet in wallets) {
-                    new_wallets.push(wallets[wallet]);
-                }
-                let multi = cache.multi();
-                for (let new_wallet of new_wallets) {
-                    multi.hset("wallet-entities", new_wallet["uid"], JSON.stringify(new_wallet));
-                }
-                multi.exec((err, result) => {
-                    if (err) {
-                        reject(err);
-                    } else {
-                        resolve();
+                    let multi = cache.multi();
+                    for (let new_wallet of new_wallets) {
+                        multi.hset("wallet-entities", new_wallet["uid"], JSON.stringify(new_wallet));
                     }
+                    multi.exec((err, result) => {
+                        if (err) {
+                            reject(err);
+                        } else {
+                            resolve();
+                        }
+                    });
                 });
             }
         });
@@ -303,7 +303,6 @@ function refresh_transitions(db: PGClient, cache: RedisClient, done: DoneFunctio
 }
 function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, domain: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-        //let transactions = { amount: balance, occurred_at: created_at1, aid: vid, id: uid, title: title, type: type1 }; 
         db.query("SELECT id, aid, type, title, amount, occurred_at FROM transactions", [], (err, result) => {
             if (err) {
                 log.info(err);
@@ -314,12 +313,12 @@ function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, 
                 for (let row of result.rows) {
                     let transaction = {
                         id: null,
-                        amount: row.amount,
+                        amount: parseFloat(row.amount),
                         occurred_at: row.occurred_at.toLocaleString,
                         aid: row.aid,
                         title: row.title,
                         type: row.type
-                    }
+                    };
                     vids.push(row.aid);
                     transactions.push(transaction);
                 }
@@ -333,18 +332,18 @@ function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, 
                             }
                         }
                     }
-                });
-                let multi = cache.multi();
-                for (let transaction of transactions) {
-                    multi.zadd("transactions-" + transaction["id"], (new Date().getTime()), JSON.stringify(transaction));
-                }
-                multi.exec((err, result) => {
-                    if (err) {
-                        log.info(err);
-                        reject(err);
-                    } else {
-                        resolve();
+                    let multi = cache.multi();
+                    for (let transaction of transactions) {
+                        multi.zadd("transactions-" + transaction["id"], (new Date().getTime()), JSON.stringify(transaction));
                     }
+                    multi.exec((err, result) => {
+                        if (err) {
+                            log.info(err);
+                            reject(err);
+                        } else {
+                            resolve();
+                        }
+                    });
                 });
             }
         });
