@@ -1,16 +1,19 @@
 {
   "dependencies": {
+    "@types/bluebird": "^3.0.36",
+    "@types/msgpack-lite": "^0.1.1",
+    "@types/pg-pool": "0.0.2",
+    "@types/redis": "^0.12.33",
+    "@types/uuid-1345": "^0.99.20",
+    "bluebird": "^3.4.1",
     "bunyan": "^1.8.1",
     "hive-hostmap": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-hostmap.git",
     "hive-processor": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-processor.git",
     "hive-server": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-server.git",
     "hive-verify": "git+http://git.fengchaohuzhu.com:10080/feiluo/hive-verify.git",
-    "msgpack-lite": "^0.1.20",
-    "nanomsg": "^3.2.1",
     "node-uuid": "^1.4.7",
-    "pg": "^6.1.0",
-    "pg-pool": "^1.4.0",
+    "pg-pool": "^1.5.0",
     "redis": "^2.6.2",
-    "uuid-1345": "https://github.com/scravy/uuid-1345.git"
+    "uuid-1345": "^0.99.6"
   }
 }
