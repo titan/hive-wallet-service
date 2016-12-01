@@ -63,7 +63,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
     return;
   }
   redis.hget(wallet_entities, ctx.uid, function (err, result) {
-    if (err || result == "" || result == null) {
+    if (err || result === "" || result === null) {
       log.info("get redis error in getwallet");
       log.info(err);
       rep({ code: 404, msg: "walletinfo not found for this uid" });
@@ -72,11 +72,11 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
       let accounts = JSON.parse(result);
       log.info(accounts);
       for (let account of accounts) {
-        let balance = account.balance0 + account.balance1;
+        let balance = account.balance0 * 100 + account.balance1 * 100;
         sum += balance;
       }
       log.info("replies==========" + result);
-      let result1 = { accounts: accounts, balance: sum, id: ctx.uid };
+      let result1 = { accounts: accounts, balance: sum / 100, id: ctx.uid };
       rep({ code: 200, data: result1 });
     }
   });
