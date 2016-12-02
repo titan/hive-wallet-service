@@ -383,7 +383,6 @@ processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
             const accounts: Object[] = JSON.parse(accountsjson);
             const amount = accounts.filter(x => x["vehicle"]["id"] === vid).reduce((acc, x) => x["balance0"] + x["balance1"], 0); // only one item
 
-            await db.query("INSERT INTO cashout(id, no, state, amount, order_id) VALUES($1, $2, $3, $4, $5)", [coid, cash_no, state, amount, order_id]);
             const cashout_entity = {
                 id: coid,
                 no: cash_no,
@@ -401,6 +400,7 @@ processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
             multi.zadd("applied-cashouts", date.getTime(), coid);
             await multi.execAsync();
             const myuuid = await UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() });
+            await db.query("INSERT INTO cashout(id, no, state, amount, order_id, last_event_id) VALUES($1, $2, $3, $4, $5, $6)", [coid, cash_no, state, amount, order_id, myuuid]);
             await db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [myuuid, cashout_entity["state"], user_id, user_id, cashout_entity])
             await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
         } catch (e) {
@@ -415,12 +415,13 @@ processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
     (async () => {
         try {
             const date = new Date();
-            await db.query("UPDATE cashout SET state = $1 , updated_at = $2 where id = $3 AND deleted = false", [state, date, coid]);
             const cashoutjson: string = await cache.hgetAsync("cashout-entities", coid);
             let cashout: Object = JSON.parse(cashoutjson);
             cashout["state"] = state;
             cashout["updated_at"] = date;
             const cashout_entity = cashout;
+            const myuuid = await UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() });
+            await db.query("UPDATE cashout SET state = $1 , updated_at = $2, last_event_id = $3, where id = $4 AND deleted = false", [state, date, myuuid, coid]);
             let multi = bluebird.promisifyAll(cache.multi()) as Multi;
             multi.hset("cashout-entities", coid, JSON.stringify(cashout));
             multi.zrem("applied-cashouts", coid);
@@ -431,7 +432,6 @@ processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 multi.zadd("refused-cashouts", date.getTime(), coid);
             }
             await multi.execAsync();
-            const myuuid = await UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() });
             await db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [myuuid, cashout_entity["state"], opid, user_id, cashout_entity]);
             const orderjson: string = await cache.hgetAsync("order-entities", cashout_entity["order_id"]);
             const order_no: Object = JSON.parse(orderjson)["id"];
