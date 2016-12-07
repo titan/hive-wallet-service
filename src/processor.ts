@@ -7,7 +7,7 @@ import * as bunyan from "bunyan";
 import * as uuid from "node-uuid";
 import * as msgpack from "msgpack-lite";
 import * as nanomsg from "nanomsg";
-import {CustomerMessage} from "recommend-library";
+import { CustomerMessage } from "recommend-library";
 import * as UUID from "uuid-1345";
 import * as queryString from "querystring";
 import * as http from "http";
@@ -383,7 +383,6 @@ processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
             const accounts: Object[] = JSON.parse(accountsjson);
             const amount = accounts.filter(x => x["vehicle"]["id"] === vid).reduce((acc, x) => x["balance0"] + x["balance1"], 0); // only one item
 
-            await db.query("INSERT INTO cashout(id, no, state, amount, order_id) VALUES($1, $2, $3, $4, $5)", [coid, cash_no, state, amount, order_id]);
             const cashout_entity = {
                 id: coid,
                 no: cash_no,
@@ -400,245 +399,85 @@ processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
             multi.hset("cashout-entities", coid, JSON.stringify(cashout_entity));
             multi.zadd("applied-cashouts", date.getTime(), coid);
             await multi.execAsync();
-            await cashout_events_async(db, cache, cashout_entity, user_id, user_id);
+            const myuuid = await UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() });
+            await db.query("INSERT INTO cashout(id, no, state, amount, order_id, last_event_id) VALUES($1, $2, $3, $4, $5, $6)", [coid, cash_no, state, amount, order_id, myuuid]);
+            await db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [myuuid, cashout_entity["state"], user_id, user_id, cashout_entity])
             await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
+            done();
         } catch (e) {
             log.error(e);
             await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 500, msg: e.message }));
+            done()
         }
     })();
 });
 
-async function cashout_events_async(db: PGClient, cache: RedisClient, cashout_entity: Object, opid: string, user_id: string) {
-    const p = new Promise<any>((resolve, reject) => {
-        UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() }, (err, result) => {
-            if (err) {
-                reject(err);
-            } else {
-                resolve(result);
-            }
-        });
-    });
-    return p.then((myuuid: String) => {
-        return db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [myuuid, cashout_entity["state"], opid, user_id, cashout_entity]);
-    });
-}
-
-function cashout_events(db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, cashout_entity: Object, opid: string, user_id: string, cb) {
-    UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() }, (err, result) => {
-        if (err) {
-            log.info("uuid v3 error " + err);
-        } else {
-            let result = uuid.v1();
-            db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [result, cashout_entity["state"], opid, user_id, cashout_entity], (err2, result2) => {
-                if (err2) {
-                    log.info(err2, "Insert into cashout_events error");
-                    cb(false);
-                } else {
-                    cb(true);
-                }
-            });
-        }
-    });
-}
-
 processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, coid: string, state: number, opid: string, user_id: string, cbflag: string) => {
     log.info("agreeCashOut");
-    let date = new Date();
-    let cashout_entity = {};
-    let order_no = "";
-    let url = "";
-    let pcash = new Promise<void>((resolve, reject) => {
-        db.query("UPDATE cashout SET state = $1 , updated_at = $2 where id = $3 AND deleted = false", [state, date, coid], (err, result) => {
-            if (err) {
-                log.error(err, "Error on UPDATE 'cashout'");
-                reject(err);
-            } else {
-                resolve();
+    (async () => {
+        try {
+            const date = new Date();
+            const cashoutjson: string = await cache.hgetAsync("cashout-entities", coid);
+            let cashout: Object = JSON.parse(cashoutjson);
+            cashout["state"] = state;
+            cashout["updated_at"] = date;
+            const cashout_entity = cashout;
+            const myuuid = await UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() });
+            await db.query("UPDATE cashout SET state = $1 , updated_at = $2, last_event_id = $3 WHERE id = $4 AND deleted = false", [state, date, myuuid, coid]);
+            let multi = bluebird.promisifyAll(cache.multi()) as Multi;
+            multi.hset("cashout-entities", coid, JSON.stringify(cashout));
+            multi.zrem("applied-cashouts", coid);
+            if (state === 1) {
+                multi.zadd("agreed-cashouts", date.getTime(), coid);
             }
-        });
-    });
-    pcash.then(() => {
-        let predis = new Promise<void>((resolve, reject) => {
-            cache.hget("cashout-entities", coid, (err, result) => {
-                if (err) {
-                    reject(err);
-                    log.info(err);
-                } else if (result) {
-                    let cashout = JSON.parse(result);
-                    cashout["state"] = state;
-                    cashout["updated_at"] = date;
-                    cashout_entity = cashout;
-                    let multi = cache.multi();
-                    multi.hset("cashout-entities", coid, JSON.stringify(cashout));
-                    multi.zrem("applied-cashouts", coid);
-                    if (state === 1) {
-                        multi.zadd("agreed-cashouts", date.getTime(), coid);
-                    }
-                    if (state === 2) {
-                        multi.zadd("refused-cashouts", date.getTime(), coid);
-                    }
-                    multi.exec((err2, result2) => {
-                        if (err2) {
-                            reject(err2);
-                            log.info(err2);
-                        } else {
-                            resolve();
-                        }
-                    });
-                } else {
-                    reject("Hget cashout-entities error");
-                    log.info("Hget cashout-entities error");
-                }
-            });
-        });
-        predis.then(() => {
-            let pevent = new Promise<void>((resolve, reject) => {
-                cashout_events(db, cache, done, domain, cashout_entity, user_id, user_id, (cb) => {
-                    if (cb) {
-                        cache.hget("order-entities", cashout_entity["order_id"], (err, result) => {
-                            if (err) {
-                                reject(err);
-                                log.info(err);
-                            } else if (result) {
-                                order_no = JSON.parse(result)["id"];
-                                resolve();
-                            } else {
-                                reject("Hget order-entities error");
-                                log.info("Hget order-entities error");
-                            }
-                        });
-                    } else {
-                        reject("Insert event error");
-                        log.info("Insert event error");
-                    }
-                });
-            });
-            pevent.then(() => {
-                let pbank = new Promise<void>((resolve, reject) => {
-                    if (state === 1) {
-                        let test = process.env["WX_ENV"] === "test" ? true : false;
-                        let p = rpc(domain, servermap["profile"], null, "getUserByUserId", user_id);
-                        p.then(profile => {
-                            if (profile["code"] === 200 && profile["data"]["pnrid"]) {
-                                let b = rpc(domain, servermap["bank_payment"], null, "getCustomerId", profile["data"]["pnrid"]);
-                                b.then(payment => {
-                                    if (payment["code"] === 200) {
-                                        let bank_amount = cashout_entity["amount"].toFixed(2).toString();
-                                        log.info(cashout_entity["order_id"], payment["cid"], bank_amount, test);
-                                        let g = rpc(domain, servermap["bank_payment"], null, "generateCashUrl", order_no, payment["cid"], bank_amount, test);
-                                        g.then(generate => {
-                                            if (generate["code"] === 200) {
-                                                url = generate["url"];
-                                                log.info(url);
-                                                resolve();
-                                            } else {
-                                                reject("Rpc generateCashUrl: " + generate["code"]);
-                                            }
-                                        }).catch((e: Error) => {
-                                            reject(e);
-                                        });
-                                    } else {
-                                        reject("Rpc getCustomerId: " + payment["code"]);
-                                    }
-                                }).catch((e: Error) => {
-                                    reject(e);
-                                });
-                            } else {
-                                reject("Rpc getUserByUserId: " + profile["code"]);
-                            }
-                        }).catch((e: Error) => {
-                            reject(e);
-                        });
-                    } else {
-                        resolve();
-                    }
-                });
-                pbank.then(() => {
-                    if (state === 1) {
-                        let o = rpc(domain, servermap["order"], null, "updateOrderState", user_id, order_no, 6, "待退款");
-                        o.then((order) => {
-                            if (order["code"] === 200) {
-                                let p = rpc(domain, servermap["profile"], null, "getUserByUserId", user_id);
-                                p.then((profile) => {
-                                    if (profile["code"] === 200) {
-                                        let postData = queryString.stringify({
-                                            "user": profile["data"]["openid"],
-                                            "amount": cashout_entity["amount"],
-                                            "url": url
-                                        });
-                                        let options = {
-                                            hostname: wxhost,
-                                            port: 80,
-                                            path: "/wx/wxpay/tmsgCashOut",
-                                            method: "GET",
-                                            headers: {
-                                                "Content-Type": "application/x-www-form-urlencoded",
-                                                "Content-Length": Buffer.byteLength(postData)
-                                            }
-                                        };
-                                        let req = http.request(options, (res) => {
-                                            log.info(`STATUS: ${res.statusCode}`);
-                                            res.setEncoding("utf8");
-                                            res.on("data", (chunk) => {
-                                                log.info(`BODY: ${chunk}`);
-                                            });
-                                            res.on("end", () => {
-                                                log.info("agreeCashOut success");
-                                                cache.setex(cbflag, 30, JSON.stringify({
-                                                    code: 200,
-                                                    coid: coid
-                                                }), (err, result) => {
-                                                    done();
-                                                });
-                                            });
-                                        });
-                                        req.on("error", (e) => {
-                                            log.info(`problem with request: ${e.message}`);
-                                        });
-                                        req.write(postData);
-                                        req.end();
-                                    } else {
-                                        errorDone(cache, done, cbflag, JSON.stringify(profile));
-                                    }
-                                });
-                            } else {
-                                errorDone(cache, done, cbflag, JSON.stringify(order));
-                            }
-                        });
-                    } else {
-                        cache.setex(cbflag, 30, JSON.stringify({
-                            code: 200,
-                            data: coid
-                        }), (err, result) => {
-                            done();
-                        });
-                    }
-                }).catch(e => {
-                    log.info(e);
-                });
-            }).catch(e => {
-                log.info(e);
-                errorDone(cache, done, cbflag, e);
-            });
-        }).catch(e => {
-            log.info(e);
-            errorDone(cache, done, cbflag, e);
-        });
-    }).catch(e => {
-        log.info(e);
-        errorDone(cache, done, cbflag, e);
-    });
-});
+            if (state === 2) {
+                multi.zadd("refused-cashouts", date.getTime(), coid);
+            }
+            await multi.execAsync();
+            await db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [myuuid, cashout_entity["state"], opid, user_id, cashout_entity]);
+            const orderjson: string = await cache.hgetAsync("order-entities", cashout_entity["order_id"]);
+            const order_no: Object = JSON.parse(orderjson)["id"];
 
-function errorDone(cache: RedisClient, done: DoneFunction, cbflag: string, e) {
-    cache.setex(cbflag, 30, JSON.stringify({
-        code: 500,
-        msg: e.message
-    }), (err, result) => {
-        done();
-    });
-    log.info(e);
-}
+            if (state === 1) {
+                const test = process.env["WX_ENV"] === "test" ? true : false;
+                const profile = await rpc(domain, servermap["profile"], null, "getUserByUserId", user_id);
+                const payment = await rpc(domain, servermap["bank_payment"], null, "getCustomerId", profile["data"]["pnrid"]);
+                const bank_amount = cashout_entity["amount"].toFixed(2).toString();
+                const generate = await rpc(domain, servermap["bank_payment"], null, "generateCashUrl", order_no, payment["cid"], bank_amount, test);
+                const url = generate["url"];
+                const order = await rpc(domain, servermap["order"], null, "updateOrderState", user_id, order_no, 6, "待退款");
+                const postData = queryString.stringify({ "user": profile["data"]["openid"], "amount": cashout_entity["amount"], "url": url });
+                const options = {
+                    hostname: wxhost, port: 80, path: "/wx/wxpay/tmsgCashOut", method: "GET",
+                    headers: {
+                        "Content-Type": "application/x-www-form-urlencoded",
+                        "Content-Length": Buffer.byteLength(postData)
+                    }
+                };
+                const req = await http.request(options, (res) => {
+                    log.info(`STATUS: ${res.statusCode}`);
+                    res.setEncoding("utf8");
+                    res.on("data", (chunk) => {
+                        log.info(`BODY: ${chunk}`);
+                    });
+                    res.on("end", () => {
+                        log.info("agreeCashOut success");
+                    });
+                });
+                req.write(postData);
+                req.end();
+                await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
+                done();
+            } else {
+                await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
+                done();
+            }
+        } catch (e) {
+            log.error(e);
+            await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 500, msg: e.message }));
+            done();
+        }
+    })();
+});
 processor.run();
 console.log("Start processor at " + config.addr);

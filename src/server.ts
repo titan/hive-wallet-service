@@ -1,12 +1,12 @@
 import { Server, Config, Context, ResponseFunction, Permission, rpc, wait_for_response } from "hive-server";
-import * as Redis from "redis";
+import { RedisClient, Multi } from "redis";;
 import * as nanomsg from "nanomsg";
 import * as msgpack from "msgpack-lite";
 import * as bunyan from "bunyan";
 import { servermap, triggermap } from "hive-hostmap";
 import * as uuid from "node-uuid";
 import { verify, uuidVerifier, stringVerifier } from "hive-verify";
-
+import * as bluebird from "bluebird";
 
 let log = bunyan.createLogger({
   name: "wallet-server",
@@ -28,9 +28,7 @@ let log = bunyan.createLogger({
   ]
 });
 
-let redis = Redis.createClient(6379, "redis"); // port, host
-
-let wallet_entities = "wallet-entities";
+let wallet_entities = "wallet-entities"; 
 let transactions = "transactions-";
 let config: Config = {
   svraddr: servermap["wallet"],
@@ -62,7 +60,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
   })) {
     return;
   }
-  redis.hget(wallet_entities, ctx.uid, function (err, result) {
+  ctx.cache.hget(wallet_entities, ctx.uid, function (err, result) {
     if (err || result === "" || result === null) {
       log.info("get redis error in getwallet");
       log.info(err);
@@ -92,7 +90,7 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
   })) {
     return;
   }
-  redis.zrevrange(transactions + ctx.uid, offset, limit, function (err, result) {
+  ctx.cache.zrevrange(transactions + ctx.uid, offset, limit, function (err, result) {
     if (err || result === null || result == "") {
       log.info("get redis error in getTransactions");
       log.info(err);
@@ -144,9 +142,8 @@ svc.call("applyCashOut", permissions, (ctx: Context, rep: ResponseFunction, orde
   wait_for_response(ctx.cache, callback, rep);
 });
 
-svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, opid) => {
+svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid: string, state: number, user_id: string, opid: string) => {
   log.info("agreeCashOut uuid is " + ctx.uid);
-  let user_id = ctx.uid;
   if (!verify([uuidVerifier("coid", coid), uuidVerifier("user_id", user_id)], (errors: string[]) => {
     log.info(errors);
     rep({
@@ -160,6 +157,88 @@ svc.call("agreeCashOut", permissions, (ctx: Context, rep: ResponseFunction, coid
   let domain = ctx.domain;
   ctx.msgqueue.send(msgpack.encode({ cmd: "agreeCashOut", args: [domain, coid, state, opid, user_id, callback] }));
   wait_for_response(ctx.cache, callback, rep);
+});
+
+declare module "redis" {
+  export interface RedisClient extends NodeJS.EventEmitter {
+    hgetAsync(key: string, field: string): Promise<any>;
+    zrevrangeAsync(key: string, field: number, field2: number): Promise<any>;
+  }
+  export interface Multi extends NodeJS.EventEmitter {
+    execAsync(): Promise<any>;
+  }
+}
+
+svc.call("getAppliedCashouts", permissions, (ctx: Context, rep: ResponseFunction) => {
+  log.info("getAppliedCashouts");
+  (async () => {
+    try {
+      const keys: Object[] = await ctx.cache.zrevrangeAsync("applied-cashouts", 0, -1);
+      let multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
+      for (let key of keys) {
+        multi.hget("cashout-entities", key);
+      }
+      const cashouts = await multi.execAsync();
+      rep({ code: 200, data: cashouts.map(e => JSON.parse(e)) });
+    } catch (e) {
+      log.error(e);
+      rep({ code: 500, msg: e.message });
+    }
+  })();
+});
+
+svc.call("getAppliedCashouts", permissions, (ctx: Context, rep: ResponseFunction) => {
+  log.info("getAppliedCashouts");
+  (async () => {
+    try {
+      const keys: Object[] = await ctx.cache.zrevrangeAsync("applied-cashouts", 0, -1);
+      let multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
+      for (let key of keys) {
+        multi.hget("cashout-entities", key);
+      }
+      const cashouts = await multi.execAsync();
+      rep({ code: 200, data: cashouts.map(e => JSON.parse(e)) });
+    } catch (e) {
+      log.error(e);
+      rep({ code: 500, msg: e.message });
+    }
+  })();
+});
+
+svc.call("getAgreedCashouts", permissions, (ctx: Context, rep: ResponseFunction) => {
+  log.info("getAgreedCashouts");
+  (async () => {
+    try {
+      const keys: Object[] = await ctx.cache.zrevrangeAsync("agreed-cashouts", 0, -1);
+      let multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
+      for (let key of keys) {
+        multi.hget("cashout-entities", key);
+      }
+      const cashouts = await multi.execAsync();
+      rep({ code: 200, data: cashouts.map(e => JSON.parse(e)) });
+    } catch (e) {
+      log.error(e);
+      rep({ code: 500, msg: e.message });
+    }
+  })();
+});
+
+svc.call("getRefusedCashouts", permissions, (ctx: Context, rep: ResponseFunction) => {
+  log.info("getRefusedCashouts");
+  (async () => {
+    try {
+      const keys: Object[] = await ctx.cache.zrevrangeAsync("refused-cashouts", 0, -1);
+      let multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
+      for (let key of keys) {
+        multi.hget("cashout-entities", key);
+      }
+      const cashouts = await multi.execAsync();
+      rep({ code: 200, data: cashouts.map(e => JSON.parse(e)) });
+    } catch (e) {
+      log.error(e);
+      rep({ code: 500, msg: e.message });
+    }
+  })();
 });
 
 console.log("Start service at " + config.svraddr);
