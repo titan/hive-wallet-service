@@ -403,9 +403,11 @@ processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
             await db.query("INSERT INTO cashout(id, no, state, amount, order_id, last_event_id) VALUES($1, $2, $3, $4, $5, $6)", [coid, cash_no, state, amount, order_id, myuuid]);
             await db.query("INSERT INTO cashout_events(id, type, opid, uid, data) VALUES ($1, $2, $3, $4, $5)", [myuuid, cashout_entity["state"], user_id, user_id, cashout_entity])
             await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
+            done();
         } catch (e) {
             log.error(e);
             await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 500, msg: e.message }));
+            done()
         }
     })();
 });
