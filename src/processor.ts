@@ -421,7 +421,7 @@ processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
             cashout["updated_at"] = date;
             const cashout_entity = cashout;
             const myuuid = await UUID.v3({ namespace: UUID.namespace.url, name: cashout_entity["no"] + cashout_entity["updated_at"] + cashout_entity["state"].toString() });
-            await db.query("UPDATE cashout SET state = $1 , updated_at = $2, last_event_id = $3, where id = $4 AND deleted = false", [state, date, myuuid, coid]);
+            await db.query("UPDATE cashout SET state = $1 , updated_at = $2, last_event_id = $3 WHERE id = $4 AND deleted = false", [state, date, myuuid, coid]);
             let multi = bluebird.promisifyAll(cache.multi()) as Multi;
             multi.hset("cashout-entities", coid, JSON.stringify(cashout));
             multi.zrem("applied-cashouts", coid);
@@ -465,12 +465,15 @@ processor.call("agreeCashOut", (db: PGClient, cache: RedisClient, done: DoneFunc
                 req.write(postData);
                 req.end();
                 await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
+                done();
             } else {
                 await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 200, data: coid }));
+                done();
             }
         } catch (e) {
             log.error(e);
             await cache.setexAsync(cbflag, 30, JSON.stringify({ code: 500, msg: e.message }));
+            done();
         }
     })();
 });
