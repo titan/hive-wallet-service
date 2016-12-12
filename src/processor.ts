@@ -377,12 +377,10 @@ processor.call("applyCashOut", (db: PGClient, cache1: RedisClient, done: DoneFun
                 cash_no += "0";
             }
             cash_no += cash_counter;
-
             const accountsjson: string = await cache.hgetAsync("wallet-entities", user_id);
             const vid: string = await cache.hgetAsync("orderid-vid", order_id);
             const accounts: Object[] = JSON.parse(accountsjson);
             const amount = accounts.filter(x => x["vehicle"]["id"] === vid).reduce((acc, x) => x["balance0"] + x["balance1"], 0); // only one item
-
             await db.query("INSERT INTO cashout(id, no, state, amount, order_id) VALUES($1, $2, $3, $4, $5)", [coid, cash_no, state, amount, order_id]);
             const cashout_entity = {
                 id: coid,
