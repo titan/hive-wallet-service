@@ -58,6 +58,15 @@ let wxhost = process.env["WX_ENV"] === "test" ? "dev.fengchaohuzhu.com" : "m.fen
 function getLocalTime(nS) {
     return new Date(parseInt(nS) * 1000).toLocaleString().replace(/:\d{1,2}$/, " ");
 }
+function trim(str: string) {
+    if (str) {
+        return str.trim();
+    } else {
+        return null;
+    }
+}
+
+
 let processor = new Processor(config);
 processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFunction, domain: any, uid: string, aid: string, type: string, vid: string, balance0: number, balance1: number) => {
     log.info("createAccount");
@@ -257,7 +266,7 @@ function sync_wallets(db: PGClient, cache: RedisClient, done: DoneFunction, doma
                     vids.push(row.id);
                     allaccounts.push(account);
                 }
-                let wvs = vids.map(vid => rpc<Object>(domain, servermap["vehicle"], null, "getVehicle", vid));
+                let wvs = vids.map(vid => rpc<Object>("mobile", servermap["vehicle"], null, "getVehicle", vid));
                 async_serial_ignore<Object>(wvs, [], (vreps) => {
                     const vehicles = vreps.filter(v => v["code"] === 200).map(v => v["data"]);
                     for (const vehicle of vehicles) {
@@ -284,7 +293,7 @@ function sync_wallets(db: PGClient, cache: RedisClient, done: DoneFunction, doma
                     }
                     let multi = cache.multi();
                     for (let new_wallet of new_wallets) {
-                        multi.hset("wallet-entities", new_wallet["uid"], JSON.stringify(new_wallet));
+                        multi.hset("wallet-entities", new_wallet[0]["uid"], JSON.stringify(new_wallet));
                     }
                     multi.exec((err, result) => {
                         if (err) {
@@ -303,7 +312,7 @@ function refresh_transitions(db: PGClient, cache: RedisClient, done: DoneFunctio
 }
 function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, domain: string): Promise<void> {
     return new Promise<void>((resolve, reject) => {
-        db.query("SELECT id, aid, type, title, amount, occurred_at FROM transactions", [], (err, result) => {
+        db.query("SELECT aid, type, title, amount, occurred_at FROM transactions", [], (err, result) => {
             if (err) {
                 log.info(err);
                 reject(err);
@@ -314,15 +323,15 @@ function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, 
                     let transaction = {
                         id: null,
                         amount: parseFloat(row.amount),
-                        occurred_at: row.occurred_at.toLocaleString,
+                        occurred_at: row.occurred_at.toLocaleString(),
                         aid: row.aid,
-                        title: row.title,
+                        title: trim(row.title),
                         type: row.type
                     };
                     vids.push(row.aid);
                     transactions.push(transaction);
                 }
-                let tvs = vids.map(vid => rpc<Object>(domain, servermap["vehicle"], null, "getVehicle", vid));
+                let tvs = vids.map(vid => rpc<Object>("mobile", servermap["vehicle"], null, "getVehicle", vid));
                 async_serial_ignore<Object>(tvs, [], (vreps) => {
                     const vehicles = vreps.filter(v => v["code"] === 200).map(v => v["data"]);
                     for (const vehicle of vehicles) {
@@ -334,7 +343,7 @@ function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, 
                     }
                     let multi = cache.multi();
                     for (let transaction of transactions) {
-                        multi.zadd("transactions-" + transaction["id"], (new Date().getTime()), JSON.stringify(transaction));
+                        multi.zadd("transactions-" + transaction["id"], new Date(transaction["occurred_at"]), JSON.stringify(transaction));
                     }
                     multi.exec((err, result) => {
                         if (err) {
