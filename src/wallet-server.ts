@@ -1,4 +1,4 @@
-import { Server, Config, Context, ResponseFunction, Permission, rpc, wait_for_response } from "hive-server";
+import { Server, ServerContext, ServerFunction, CmdPacket, Permission, wait_for_response } from "hive-service";
 import { RedisClient, Multi } from "redis";;
 import * as nanomsg from "nanomsg";
 import * as msgpack from "msgpack-lite";
@@ -30,27 +30,38 @@ let log = bunyan.createLogger({
 
 let wallet_entities = "wallet-entities";
 let transactions = "transactions-";
-let config: Config = {
-  svraddr: servermap["wallet"],
-  msgaddr: "ipc:///tmp/wallet.ipc",
-  cacheaddr: process.env["CACHE_HOST"]
-};
 
-let svc = new Server(config);
+declare module "redis" {
+  export interface RedisClient extends NodeJS.EventEmitter {
+    hgetAsync(key: string, field: string): Promise<any>;
+    hincrbyAsync(key: string, field: string, value: number): Promise<any>;
+    setexAsync(key: string, ttl: number, value: string): Promise<any>;
+    zrevrangebyscoreAsync(key: string, start: number, stop: number): Promise<any>;
+  }
+  export interface Multi extends NodeJS.EventEmitter {
+    execAsync(): Promise<any>;
+  }
+}
 
-let permissions: Permission[] = [["mobile", true], ["admin", true]];
+
+const svc = new Server();
+
+const allowAll: Permission[] = [["mobile", true], ["admin", true]];
+const mobileOnly: Permission[] = [["mobile", true], ["admin", false]];
+const adminOnly: Permission[] = [["mobile", false], ["admin", true]];
 // 来自order模块
-svc.call("createAccount", permissions, (ctx: Context, rep: ResponseFunction, uid: string, type: string, vid: string, balance0: string, balance1: string) => {
-  // let uid = ctx.uid;
+svc.call("createAccount", allowAll, "初始化钱包帐号", "初始化钱包帐号", (ctx: ServerContext, rep: ((result: any) => void), uid: string, type: number, vid: string, order_id: string) => {
   let aid = vid;
   let domain = ctx.domain;
-  let args = { domain, uid, aid, type, vid, balance0, balance1 };
+  let callback = uuid.v1();
+  let args = { domain, uid, aid, type, vid, order_id };
   log.info("createAccount", args);
-  ctx.msgqueue.send(msgpack.encode({ cmd: "createAccount", args: [domain, uid, aid, type, vid, balance0, balance1] }));
-  rep({ status: "200", data: aid });
+  const pkt: CmdPacket = { cmd: "createAccount", args: [domain, uid, aid, type, vid, order_id, callback] };
+  ctx.publish(pkt);
+  wait_for_response(ctx.cache, callback, rep);
 });
 
-svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
+svc.call("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", (ctx: ServerContext, rep: ((result) => void)) => {
   log.info("getwallet" + ctx.uid);
   if (!verify([uuidVerifier("uid", ctx.uid)], (errors: string[]) => {
     rep({
@@ -67,7 +78,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
       rep({ code: 404, msg: "walletinfo not found for this uid" });
     } else {
       let sum = null;
-      let accounts = msgpack.decode(result);
+      let accounts = JSON.parse(result);
       log.info(accounts);
       for (let account of accounts) {
         let balance = account.balance0 * 100 + account.balance1 * 100;
@@ -80,7 +91,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
   });
 });
 
-svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, offset: any, limit: any) => {
+svc.call("getTransactions", allowAll, "获取交易记录", "用户所有交易记录", (ctx: ServerContext, rep: ((result) => void), offset: any, limit: any) => {
   log.info("getTransactions=====================");
   if (!verify([uuidVerifier("uid", ctx.uid)], (errors: string[]) => {
     rep({
@@ -96,26 +107,34 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
       log.info(err);
       rep({ code: 500, msg: "未找到交易日志" });
     } else {
-      const alltransactions = [];
-      for (let t of result) {
-        if (t !== null) {
-          const transaction = msgpack.decode(t);
-          alltransactions.push(transaction);
-        }
-      }
-      // rep(JSON.parse(result));
-      rep({ code: 200, data: alltransactions });
+      rep({ code: 200, data: result.map(e => JSON.parse(e)) });
     }
   });
 });
-//  来自order模块  type 表示交易类型　　type1　表示事件类型
-svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFunction, uid: string, vid: string, type1: string, balance0: string, balance1: string) => {
+//  来自order模块
+svc.call("updateAccountbalance", allowAll, "更新帐号信息", "产生充值，扣款，提现等", (ctx: ServerContext, rep: ((result) => void), uid: string, vid: string, type: number, type1: number, balance0: number, balance1: number, order_id: string, title: string) => {
   log.info("getTransactions=====================");
   let domain = ctx.domain;
-  let args = { domain, uid, vid, type1, balance0, balance1 };
-  log.info("createAccount", args);
+  let callback = uuid.v1();
+  // uid: string, vid: string, type: number, type1: number, balance0: number, balance1: number, order_id: string)
+  let args = { domain, uid, vid, type, type1, balance0, balance1, order_id };
+  log.info("updateAccountbalance", args);
+  (async () => {
+    try {
+      const aid = await ctx.cache.hgetAsync("vid-aid", vid);
+      const pkt: CmdPacket = { cmd: "updateAccountbalance", args: [domain, uid, vid, aid, type, type1, balance0, balance1, order_id, title, callback] };
+      ctx.publish(pkt);
+      wait_for_response(ctx.cache, callback, rep);
+    } catch (e) {
+      log.info(e);
+      rep({
+        code: 500,
+        msg: e
+      });
+    }
+  })();
   ctx.msgqueue.send(msgpack.encode({ cmd: "updateAccountbalance", args: [domain, uid, vid, type1, balance0, balance1] }));
-  rep({ code: 200, data: "200" });
+
 });
 
 // svc.call("createFreezeAmountLogs", permissions, (ctx: Context, rep: ResponseFunction) => {
