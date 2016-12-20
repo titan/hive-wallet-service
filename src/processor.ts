@@ -174,15 +174,18 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
             log.error(err, "query error");
             done();
         } else {
-            db.query("UPDATE accounts SET balance0 = balance0 + $1,balance1 = balance1 + $2 WHERE id = $3", [balance0, balance1, vid], (err: Error, result: QueryResult) => {
+            db.query("SELECT balance0, balance1 FROM accounts WHERE id = $1", [vid], (err, result) => {
                 if (err) {
                     db.query("ROLLBACK", [], (err) => {
                         log.error(err, "insert into accounts error");
                         done();
                     });
-                }
-                else {
-                    db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, vid, type1, title, balance], (err: Error, result: QueryResult) => {
+                } else {
+                    const oldbalance0: number = result.rows[0]["balance0"];
+                    const oldbalance1: number = result.rows[0]["balance1"];
+                    const newbalance0: number = oldbalance0 + balance0;
+                    const newbalance1: number = oldbalance1 + balance1;
+                    db.query("UPDATE accounts SET balance0 = balance0,balance1 = balance1 WHERE id = $3", [newbalance0, newbalance1, vid], (err: Error, result: QueryResult) => {
                         if (err) {
                             db.query("ROLLBACK", [], (err) => {
                                 log.error(err, "insert into accounts error");
@@ -190,41 +193,51 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
                             });
                         }
                         else {
-                            db.query("COMMIT", [], (err: Error) => {
+                            db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, vid, type1, title, balance], (err: Error, result: QueryResult) => {
                                 if (err) {
-                                    log.info(err);
-                                    log.error(err, "insert plan order commit error");
-                                    done();
-                                } else {
-                                    let multi = cache.multi();
-                                    multi.hget("wallet-entities", uid, function (err, replise) {
+                                    db.query("ROLLBACK", [], (err) => {
+                                        log.error(err, "insert into accounts error");
+                                        done();
+                                    });
+                                }
+                                else {
+                                    db.query("COMMIT", [], (err: Error) => {
                                         if (err) {
-                                            log.info("err,get redis error");
+                                            log.info(err);
+                                            log.error(err, "insert plan order commit error");
                                             done();
                                         } else {
-                                            let accounts = msgpack.decode(replise);
-                                            log.info(accounts);
-                                            for (let account of accounts) {
-                                                if (account["id"] === vid) {
-                                                    let balance01 = account["balance0"];
-                                                    let balance11 = account["balance1"];
-                                                    let balance02 = balance01 + balance0;
-                                                    let balance12 = balance11 + balance1;
-                                                    account["balance0"] = balance02;
-                                                    account["balance1"] = balance12;
-                                                }
-                                            }
                                             let multi = cache.multi();
-                                            let transactions = { amount: balance, occurred_at: created_at1, aid: vid, id: uid, title: title, type: type1 };
-                                            multi.hset("wallet-entities", uid, msgpack.encode(accounts));
-                                            multi.zadd("transactions-" + uid, created_at, msgpack.encode(transactions));
-                                            multi.exec((err, result1) => {
+                                            multi.hget("wallet-entities", uid, function (err, replise) {
                                                 if (err) {
-                                                    log.info("err:hset order_entities error");
+                                                    log.info("err,get redis error");
                                                     done();
                                                 } else {
-                                                    log.info("db end in updateOrderState");
-                                                    done();
+                                                    let accounts = msgpack.decode(replise);
+                                                    log.info(accounts);
+                                                    for (let account of accounts) {
+                                                        if (account["id"] === vid) {
+                                                            let balance01 = account["balance0"];
+                                                            let balance11 = account["balance1"];
+                                                            let balance02 = balance01 + balance0;
+                                                            let balance12 = balance11 + balance1;
+                                                            account["balance0"] = balance02;
+                                                            account["balance1"] = balance12;
+                                                        }
+                                                    }
+                                                    let multi = cache.multi();
+                                                    let transactions = { amount: balance, occurred_at: created_at1, aid: vid, id: uid, title: title, type: type1 };
+                                                    multi.hset("wallet-entities", uid, msgpack.encode(accounts));
+                                                    multi.zadd("transactions-" + uid, created_at, msgpack.encode(transactions));
+                                                    multi.exec((err, result1) => {
+                                                        if (err) {
+                                                            log.info("err:hset order_entities error");
+                                                            done();
+                                                        } else {
+                                                            log.info("db end in updateOrderState");
+                                                            done();
+                                                        }
+                                                    });
                                                 }
                                             });
                                         }
@@ -341,7 +354,7 @@ function sync_transitions(db: PGClient, cache: RedisClient, done: DoneFunction, 
                     }
                     let multi = cache.multi();
                     for (let transaction of transactions) {
-                        multi.zadd("transactions-" + transaction["id"], new Date(transaction["occurred_at"]), msgpack.encode(transaction));
+                        multi.zadd("transactions-" + transaction["id"], new Date(transaction["occurred_at"]).getTime(), msgpack.encode(transaction));
                     }
                     multi.exec((err, result) => {
                         if (err) {
