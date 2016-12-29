@@ -63,7 +63,7 @@ svc.call("getWallet", permissions, (ctx: Context, rep: ResponseFunction) => {
   ctx.cache.hget(wallet_entities, ctx.uid, function (err, result) {
     if (err || result === "" || result === null) {
       log.info("get redis error in getwallet");
-      log.info(err);
+      // log.info(err);
       rep({ code: 404, msg: "walletinfo not found for this uid" });
     } else {
       let sum = null;
@@ -108,7 +108,7 @@ svc.call("getTransactions", permissions, (ctx: Context, rep: ResponseFunction, o
     }
   });
 });
-//  来自order模块  type 表示交易类型　　type1　表示事件类型
+
 svc.call("updateAccountbalance", permissions, (ctx: Context, rep: ResponseFunction, uid: string, vid: string, type1: string, balance0: string, balance1: string) => {
   log.info("getTransactions=====================");
   let domain = ctx.domain;

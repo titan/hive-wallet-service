@@ -119,8 +119,8 @@ processor.call("createAccount", (db: PGClient, cache: RedisClient, done: DoneFun
                                                     let transactions = { amount: balance, occurred_at: created_at1, aid: aid, id: uid, title: title, type: 1 };
                                                     let account = { balance0: balance0, balance1: balance1, id: aid, type: type, vehicle: vehicle };
                                                     accounts.push(account);
-                                                    multi.zadd("transactions-" + uid, created_at, JSON.stringify(transactions));
-                                                    multi.hset("wallet-entities", uid, JSON.stringify(accounts));
+                                                    multi.zadd("transactions-" + uid, created_at, msgpack.encode(transactions));
+                                                    multi.hset("wallet-entities", uid, msgpack.encode(accounts));
                                                     multi.exec((err3, replies) => {
                                                         if (err3) {
                                                             log.error(err3, "query redis error");
@@ -185,7 +185,7 @@ processor.call("updateAccountbalance", (db: PGClient, cache: RedisClient, done: 
                     const oldbalance1: number = result.rows[0]["balance1"];
                     const newbalance0: number = oldbalance0 + balance0;
                     const newbalance1: number = oldbalance1 + balance1;
-                    db.query("UPDATE accounts SET balance0 = balance0,balance1 = balance1 WHERE id = $3", [newbalance0, newbalance1, vid], (err: Error, result: QueryResult) => {
+                    db.query("UPDATE accounts SET balance0 =$1 ,balance1 = $2 WHERE id = $3", [newbalance0, newbalance1, vid], (err: Error, result: QueryResult) => {
                         if (err) {
                             db.query("ROLLBACK", [], (err) => {
                                 log.error(err, "insert into accounts error");
