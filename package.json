@@ -5,15 +5,7 @@
     "@types/pg-pool": "0.0.2",
     "@types/redis": "^0.12.33",
     "@types/uuid-1345": "^0.99.20",
-    "bluebird": "^3.4.1",
-    "bunyan": "^1.8.1",
-    "hive-hostmap": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-hostmap.git",
-    "hive-processor": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-processor.git",
-    "hive-server": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-server.git",
-    "hive-verify": "git+http://git.fengchaohuzhu.com:10080/feiluo/hive-verify.git",
-    "node-uuid": "^1.4.7",
-    "pg-pool": "^1.5.0",
-    "redis": "^2.6.2",
-    "uuid-1345": "^0.99.6"
+    "hive-service": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-service.git",
+    "hive-verify": "git+http://git.fengchaohuzhu.com:10080/feiluo/hive-verify.git"
   }
 }
