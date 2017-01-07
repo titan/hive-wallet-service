@@ -241,7 +241,7 @@ server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助�
   }
   const cbflag = uuid.v1();
   const domain = ctx.domain;
-  const pkt: CmdPacket = { cmd: "debit", args: [domain, ctx.uid, amount, maid, type, cbflag] };
+  const pkt: CmdPacket = { cmd: "debit", args: [domain, ctx.uid, amount, maid, cbflag] };
   ctx.publish(pkt);
   wait_for_response(ctx.cache, cbflag, rep);
 });
