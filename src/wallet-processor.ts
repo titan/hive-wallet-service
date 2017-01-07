@@ -67,12 +67,12 @@ processor.call("createAccount", (ctx: ProcessorContext, domain: string, uid: str
             occurred_at: new Date()
           };
           await db.query("BEGIN");
-          await db.query("INSERT INTO wallet_events(id,type,uid,data) VALUES($1,$2,$3,$4)", [evtid, evt_type, uid, data]);
-          await db.query("INSERT INTO wallets(id,uid,balance,evtid) VALUES($1,$2,$3,$4)", [wid, uid, 0, vid, evtid]);
-          await db.query("INSERT INTO accounts(id,uid,vid,pid,balance0,balance1,balance2) VALUES($1,$2,$3,$4,$5,$6,$7)", [aid, uid, vid, pid, 0, 0, 0]);
+          await db.query("INSERT INTO wallet_events(id, type, opid, uid, data) VALUES($1, $2, $3, $4, $5)", [evtid, evt_type, uid, uid, data]);
+          await db.query("INSERT INTO wallets(id, uid, balance, evtid) VALUES($1, $2, $3, $4)", [wid, uid, 0, evtid]);
+          await db.query("INSERT INTO accounts(id, uid, vid, pid, balance0, balance1, balance2) VALUES($1, $2, $3, $4, $5, $6, $7)", [aid, uid, vid, pid, 0, 0, 0]);
           await db.query("COMMIT");
         } else {
-          await db.query("INSERT INTO accounts(id,uid,vid,pid,balance0,balance1,balance2) VALUES($1,$2,$3,$4,$5,$6,$7)", [aid, uid, vid, pid, 0, 0, 0]);
+          await db.query("INSERT INTO accounts(id, uid, vid, pid, balance0, balance1, balance2) VALUES($1, $2, $3, $4, $5, $6, $7)", [aid, uid, vid, pid, 0, 0, 0]);
         }
       } else {
         await set_for_response(cache, cbflag, {
@@ -134,17 +134,17 @@ processor.call("updateAccountBalance", (ctx: ProcessorContext, domain: string, v
       const wreps = await db.query("SELECT balance FROM wallets WHERE uid = $1", [uid]);
       if (wreps["rowCount"] !== 0) {
         const old_balance: number = parseFloat(wreps["rows"][0]["balance"]);
-        await db.query("UPDATE wallets SET balance = $1,evtid = $2 WHERE id = $3", [balance + old_balance, evtid, uid]);
+        await db.query("UPDATE wallets SET balance = $1, evtid = $2 WHERE id = $3", [balance + old_balance, evtid, uid]);
         const accreps = await db.query("SELECT balance0, balance1, balance2 FROM accounts WHERE id = $1 AND pid = $2", [aid, pid]);
         if (accreps["rowCount"] !== 0) {
           const old_balance0: number = parseFloat(accreps["rows"][0]["balance0"]);
           const old_balance1: number = parseFloat(accreps["rows"][0]["balance1"]);
           const old_balance2: number = parseFloat(accreps["rows"][0]["balance2"]);
-          await db.query("UPDATE accounts SET balance0 = $1,balance1 = $2, balance2 = $3, updated_at = $4 WHERE id = $5 AND pid = $6", [balance0 + old_balance0, balance1 + old_balance1, balance2 + old_balance2, created_at, aid, pid]);
-          await db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, aid, type0, title, balance]);
-          await db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, aid, type2, title1, balance * 0.2]);
-          await db.query("INSERT INTO transactions(id,aid,type,title,amount) VALUES($1,$2,$3,$4,$5)", [tid, aid, type0, title2, balance * 0.2]);
-          await db.query("INSERT INTO wallet_events(id,type,uid,data) VALUES($1,$2,$3,$4)", [evtid, type1, uid, data]);
+          await db.query("UPDATE accounts SET balance0 = $1, balance1 = $2, balance2 = $3, updated_at = $4 WHERE id = $5 AND pid = $6", [balance0 + old_balance0, balance1 + old_balance1, balance2 + old_balance2, created_at, aid, pid]);
+          await db.query("INSERT INTO transactions(id, aid, type, title, amount) VALUES($1, $2, $3, $4, $5)", [tid, aid, type0, title, balance]);
+          await db.query("INSERT INTO transactions(id, aid, type, title, amount) VALUES($1, $2, $3, $4, $5)", [tid, aid, type2, title1, balance * 0.2]);
+          await db.query("INSERT INTO transactions(id, aid, type, title, amount) VALUES($1, $2, $3, $4, $5)", [tid, aid, type0, title2, balance * 0.2]);
+          await db.query("INSERT INTO wallet_events(id, type, opid, uid, data) VALUES($1, $2, $3, $4, $5)", [evtid, type1, uid, uid, data]);
           await db.query("COMMIT");
         } else {
           set_for_response(cache, callback, {
@@ -259,7 +259,7 @@ processor.call("freeze", (ctx: ProcessorContext, domain: string, uid: string, am
         } else {
           await db.query("INSERT INTO transactions(id, aid, type, title, amount) VALUES($1, $2, $3, $4,$5)", [tid, aid, type, title, amount]);
           await db.query("UPDATE wallets SET frozen = $1 WHERE uid = $2", [parseFloat(amount) + old_frozen, uid]);
-          await db.query("INSERT INTO wallet_events(id, type, uid, occurred_at, data) VALUES($1, $2, $3, $4,$5)", [evtid, type1, uid, updated_at, data]);
+          await db.query("INSERT INTO wallet_events(id, type, opid, uid, occurred_at, data) VALUES($1, $2, $3, $4, $5, $6)", [evtid, type1, uid, uid, updated_at, data]);
           await db.query("COMMIT");
           await sync_wallets(db, cache, domain, uid);
           await sync_transitions(db, cache, domain, tid);
@@ -278,7 +278,7 @@ processor.call("freeze", (ctx: ProcessorContext, domain: string, uid: string, am
         return;
       }
     } catch (e) {
-      log.info("e");
+      log.info(e);
       set_for_response(cache, cbflag, {
         code: 500,
         msg: e.message
@@ -326,7 +326,7 @@ processor.call("unfreeze", (ctx: ProcessorContext, domain: string, uid: string, 
         } else {
           await db.query("INSERT INTO transactions(id, aid, type, title, amount) VALUES($1, $2, $3, $4,$5)", [tid, aid, type, title, amount]);
           await db.query("UPDATE wallets SET frozen = $1 WHERE uid = $2", [old_frozen - parseFloat(amount), uid]);
-          await db.query("INSERT INTO wallet_events(id, type, uid, occurred_at, data) VALUES($1, $2, $3, $4,$5)", [evtid, type1, uid, updated_at, data]);
+          await db.query("INSERT INTO wallet_events(id, type, opid, uid, occurred_at, data) VALUES($1, $2, $3, $4, $5, $6)", [evtid, type1, uid, uid, updated_at, data]);
           await db.query("COMMIT");
           await sync_wallets(db, cache, domain, uid);
           await sync_transitions(db, cache, domain, tid);
@@ -345,7 +345,7 @@ processor.call("unfreeze", (ctx: ProcessorContext, domain: string, uid: string, 
         return;
       }
     } catch (e) {
-      log.info("e");
+      log.info(e);
       set_for_response(cache, cbflag, {
         code: 500,
         msg: e.message
@@ -385,7 +385,7 @@ processor.call("debit", (ctx: ProcessorContext, domain: string, uid: string, amo
           });
         } else {
           await db.query("UPDATE wallets SET balance = $1 WHERE uid = $2", [old_balance - parseFloat(amount), uid]);
-          await db.query("INSERT INTO wallet_events(id, type, uid, occurred_at, data) VALUES($1, $2, $3, $4,$5)", [evtid, type, uid, updated_at, data]);
+          await db.query("INSERT INTO wallet_events(id, type, opid, uid, occurred_at, data) VALUES($1, $2, $3, $4, $5, $6)", [evtid, type, uid, uid, updated_at, data]);
           await db.query("COMMIT");
           await sync_wallets(db, cache, domain, uid);
           set_for_response(cache, cbflag, {
@@ -403,7 +403,7 @@ processor.call("debit", (ctx: ProcessorContext, domain: string, uid: string, amo
         return;
       }
     } catch (e) {
-      log.info("e");
+      log.info(e);
       set_for_response(cache, cbflag, {
         code: 500,
         msg: e.message
@@ -438,7 +438,7 @@ processor.call("cashin", (ctx: ProcessorContext, domain: string, uid: string, am
       if (wreps["rowCount"] !== 0) {
         const old_cashable: number = parseFloat(wreps["rows"][0]["cashable"]);
         await db.query("UPDATE wallets SET cashable = $1 WHERE uid = $2", [old_cashable + parseFloat(amount), uid]);
-        await db.query("INSERT INTO wallet_events(id, type, uid, occurred_at, data) VALUES($1, $2, $3, $4,$5)", [evtid, type, uid, updated_at, data]);
+        await db.query("INSERT INTO wallet_events(id, type, opid, uid, occurred_at, data) VALUES($1, $2, $3, $4,$5, $6)", [evtid, type, uid, uid, updated_at, data]);
         await db.query("COMMIT");
         await sync_wallets(db, cache, domain, uid);
         set_for_response(cache, cbflag, {
@@ -455,7 +455,7 @@ processor.call("cashin", (ctx: ProcessorContext, domain: string, uid: string, am
         return;
       }
     } catch (e) {
-      log.info("e");
+      log.info(e);
       set_for_response(cache, cbflag, {
         code: 500,
         msg: e.message
@@ -494,7 +494,7 @@ processor.call("cashout", (ctx: ProcessorContext, domain: string, uid: string, a
           });
         } else {
           await db.query("UPDATE wallets SET cashable = $1 WHERE uid = $2", [parseFloat(amount) - old_cashable, uid]);
-          await db.query("INSERT INTO wallet_events(id, type, uid, occurred_at, data) VALUES($1, $2, $3, $4,$5)", [evtid, type, uid, updated_at, data]);
+          await db.query("INSERT INTO wallet_events(id, type,opid, uid, occurred_at, data) VALUES($1, $2, $3, $4, $5, $6)", [evtid, type, uid, uid, updated_at, data]);
           await db.query("COMMIT");
           await sync_wallets(db, cache, domain, uid);
           set_for_response(cache, cbflag, {
@@ -512,7 +512,7 @@ processor.call("cashout", (ctx: ProcessorContext, domain: string, uid: string, a
         return;
       }
     } catch (e) {
-      log.info("e");
+      log.info(e);
       set_for_response(cache, cbflag, {
         code: 500,
         msg: e.message
@@ -534,48 +534,56 @@ async function sync_wallets(db, cache, domain: string, wid?: string): Promise<vo
   if (!wid) {
     await cache.del("wallet-entities");
   }
-  const result = await db.query("SELECT w.id AS wid, w.uid, w.frozen, w.cashable, w.balance, a.id AS aid, a.pid, a.vid, a.balance0, a.balance1, a.balance2 FROM wallets AS w INNER JOIN accounts AS a ON w.uid = a.uid WHERE w.deleted = false AND a.deleted = false " + (wid ? "AND uid = $1 ORDER BY wid, w.uid" : "ORDER BY wid, w.uid"), wid ? [wid] : []);
-  const wallets = [];
-  const accounts = [];
-  let wallet = null;
-  for (const row of result.rows) {
-    if (wallet && wallet.id !== row.wid) {
-      wallets.push(wallet);
-    } else {
-      wallet = {
-        id: row.wid,
+  try {
+    const result = await db.query("SELECT w.id AS wid, w.uid, w.frozen, w.cashable, w.balance, a.id AS aid, a.pid, a.vid, a.balance0, a.balance1, a.balance2 FROM wallets AS w INNER JOIN accounts AS a ON w.uid = a.uid WHERE w.deleted = false AND a.deleted = false " + (wid ? "AND w.uid = $1 ORDER BY wid, w.uid" : "ORDER BY wid, w.uid"), wid ? [wid] : []);
+    const wallets = [];
+    const accounts = [];
+    let wallet = null;
+    for (const row of result.rows) {
+      if (wallet && wallet.id !== row.wid) {
+        wallets.push(wallet);
+      } else {
+        wallet = {
+          id: row.wid,
+          uid: row.uid,
+          frozen: row.frozen,
+          cashable: row.cashable,
+          balance: row.balance,
+          accounts: []
+        };
+      }
+      const account = {
+        balance0: parseFloat(row.balance0),
+        balance1: parseFloat(row.balance1),
+        balance2: parseFloat(row.balance2),
+        id: row.id,
         uid: row.uid,
-        frozen: row.frozen,
-        cashable: row.cashable,
-        balance: row.balance,
-        accounts: []
+        pid: row.pid,
+        vid: row.vid,
+        vehicle: null
       };
+      const vrep = await rpc<Object>(domain, process.env["VEHICLE"], row.uid, "getVehicle", row.vid);
+      if (vrep["code"] === 200) {
+        account["vehicle"] = vrep["data"];
+      }
+      wallet.accounts.push(account);
     }
-    const account = {
-      balance0: parseFloat(row.balance0),
-      balance1: parseFloat(row.balance1),
-      balance2: parseFloat(row.balance2),
-      id: row.id,
-      uid: row.uid,
-      pid: row.pid,
-      vid: row.vid,
-      vehicle: null
-    };
-    const vrep = await rpc<Object>(domain, process.env["VEHICLE"], row.uid, "getVehicle", row.vid);
-    if (vrep["code"] === 200) {
-      account["vehicle"] = vrep["data"];
+    if (wallet) {
+      wallets.push(wallet);
     }
-    wallet.accounts.push(account);
+    const multi = bluebird.promisifyAll(cache.multi()) as Multi;
+    for (const wallet of wallets) {
+      const pkt = await msgpack_encode(wallet);
+      for (const account of wallet["accounts"]) {
+        multi.hset("vid-aid", account["vid"] + account["pid"], account["id"]);
+      }
+      multi.hset("wallet-entities", wallet.id, pkt);
+    }
+    return multi.execAsync();
+  } catch (e) {
+    log.error(e);
+    throw e;
   }
-  if (wallet) {
-    wallets.push(wallet);
-  }
-  const multi = bluebird.promisifyAll(cache.multi()) as Multi;
-  for (const wallet of wallets) {
-    const pkt = await msgpack_encode(wallet);
-    multi.hset("wallet-entities", wallet.id, pkt);
-  }
-  return multi.execAsync();
 }
 
 async function refresh_transitions(db, cache, domain: string): Promise<void> {

@@ -150,7 +150,7 @@ server.call("updateAccountBalance", adminOnly, "更新帐号余额", "唯一来�
   const cbflag = uuid.v1();
   (async () => {
     try {
-      const aid = await ctx.cache.hgetAsync("vid-aid", vid);
+      const aid = await ctx.cache.hgetAsync("vid-aid", vid + pid);
       if (aid === null || aid === "") {
         rep({
           code: 500,
