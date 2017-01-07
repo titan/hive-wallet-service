@@ -34,9 +34,7 @@ const allowAll: Permission[] = [["mobile", true], ["admin", true]];
 const mobileOnly: Permission[] = [["mobile", true], ["admin", false]];
 const adminOnly: Permission[] = [["mobile", false], ["admin", true]];
 
-
-// 前端禁用
-server.call("createAccount", adminOnly, "初始化钱包帐号", "初始化钱包帐号，若钱包不存在，则创建钱包", (ctx: ServerContext, rep: ((result: any) => void), vid: string, pid: string, uid?: string) => {
+server.call("createAccount", allowAll, "初始化钱包帐号", "初始化钱包帐号，若钱包不存在，则创建钱包", (ctx: ServerContext, rep: ((result: any) => void), vid: string, pid: string, uid?: string) => {
   log.info(`createAccount, vid: ${vid}, pid: ${pid}, uid: ${uid ? uid : ctx.uid}`);
   if (uid) {
     if (!verify([uuidVerifier("uid", uid), uuidVerifier("vid", vid), uuidVerifier("pid", pid)], (errors: string[]) => {
@@ -65,27 +63,8 @@ server.call("createAccount", adminOnly, "初始化钱包帐号", "初始化钱�
   wait_for_response(ctx.cache, cbflag, rep);
 });
 
-// 删除该接口，创建帐号的时候检查是否有钱包，没有就创建
-// server.call("createWallet", adminOnly, "初始化钱包", "初始化钱包信息,提交订单时创建", (ctx: ServerContext, rep: (result: any) => void) => {
-//   log.info(`createWallet, uid: ${ctx.uid}`);
-//   if (!verify([uuidVerifier("uid", ctx.uid)], (errors: string[]) => {
-//     rep({
-//       code: 400,
-//       msg: errors.join("\n")
-//     });
-//   })) {
-//     return;
-//   }
-//   const wid = uuid.v1();
-//   const domain = ctx.domain;
-//   const cbflag = wid;
-//   const pkt: CmdPacket = { cmd: "createWallet", args: [domain, ctx.uid, cbflag] };
-//   ctx.publish(pkt);
-//   wait_for_response(ctx.cache, cbflag, rep);
-// });
-
 server.call("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", (ctx: ServerContext, rep: ((result) => void)) => {
-  log.info("getwallet" + ctx.uid);
+  log.info(`getWallet, uid: ${ctx.uid}`);
   if (!verify([uuidVerifier("uid", ctx.uid)], (errors: string[]) => {
     rep({
       code: 400,
@@ -144,8 +123,8 @@ server.call("getTransactions", allowAll, "获取交易记录", "获取钱包帐�
 });
 
 // vid: , pid: , type0:, type1:, balance0: , balance1: , balance2: , title: string, oid: string, uid ?: string) => {
-server.call("updateAccountBalance", adminOnly, "更新帐号余额", "唯一来源为订单充值", (ctx: ServerContext, rep: ((result) => void), vid: string, pid: string, type0: number, type1: number, balance0: number, balance1: number, balance2: number, title: string, oid: string, uid: string) => {
-  log.info(`updateAccountBalance  domain:${ctx.domain},uid:${uid}, vid:${vid}, pid:${pid}, type0:${type0}, type1:${type1}, balance0:${balance0}, balance1:${balance1}, balance2:${balance2}, title:${title}, oid:${oid}`);
+server.call("updateAccountBalance", allowAll, "更新帐号余额", "唯一来源为订单充值", (ctx: ServerContext, rep: ((result) => void), vid: string, pid: string, type0: number, type1: number, balance0: number, balance1: number, balance2: number, title: string, oid: string, uid: string) => {
+  log.info(`updateAccountBalance  domain: ${ctx.domain}, uid: ${uid}, vid: ${vid}, pid: ${pid}, type0: ${type0}, type1: ${type1}, balance0: ${balance0}, balance1: ${balance1}, balance2: ${balance2}, title: ${title}, oid: ${oid}`);
   const domain = ctx.domain;
   const cbflag = uuid.v1();
   (async () => {
@@ -173,8 +152,6 @@ server.call("updateAccountBalance", adminOnly, "更新帐号余额", "唯一来�
   })();
 });
 
-
-
 server.call("recharge", allowAll, "钱包充值", "来自order模块", (ctx: ServerContext, rep: ((result: any) => void), oid: string) => {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}`);
   if (!verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)], (errors: string[]) => {
@@ -194,8 +171,8 @@ server.call("recharge", allowAll, "钱包充值", "来自order模块", (ctx: Ser
 
 
 server.call("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结,账户余额不会改变", (ctx: ServerContext, rep: ((result: any) => void), amount: number, maid: string, aid: string, type: number) => {
-  log.info(`freeze, amount: ${amount}, maid: ${maid},aid: ${aid}`);
-  if (!verify([uuidVerifier("maid", maid), uuidVerifier("aid", aid), numberVerifier("amount", amount)], (errors: string[]) => {
+  log.info(`freeze, amount: ${amount}, maid: ${maid}, aid: ${aid}, type: ${type}`);
+  if (!verify([uuidVerifier("maid", maid), uuidVerifier("aid", aid), numberVerifier("amount", amount), numberVerifier("type", type)], (errors: string[]) => {
     rep({
       code: 400,
       msg: errors.join("\n")
@@ -212,7 +189,7 @@ server.call("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结
 
 
 server.call("unfreeze", adminOnly, "解冻资金", "用户账户资金解冻,账户余额不会改变", (ctx: ServerContext, rep: ((result: any) => void), amount: number, maid: string, aid: string) => {
-  log.info(`unfreeze, amount: ${amount}, maid: ${maid},aid: ${aid}`);
+  log.info(`unfreeze, amount: ${amount}, maid: ${maid}, aid: ${aid}`);
   if (!verify([uuidVerifier("maid", maid), uuidVerifier("aid", aid), numberVerifier("amount", amount)], (errors: string[]) => {
     rep({
       code: 400,
@@ -284,6 +261,7 @@ server.call("cashout", adminOnly, "提用户现", "用户将可提现金额提�
 
 
 server.call("refresh", adminOnly, "刷新", "刷新数据", (ctx: ServerContext, rep: ((result: any) => void)) => {
+  log.info(`refresh`);
   const pkt: CmdPacket = { cmd: "refresh", args: null };
   ctx.publish(pkt);
   rep({ code: 200, data: "success" });
