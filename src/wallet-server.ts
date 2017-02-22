@@ -63,37 +63,31 @@ server.call("createAccount", allowAll, "初始化钱包帐号", "初始化钱包
   wait_for_response(ctx.cache, cbflag, rep);
 });
 
-server.call("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", (ctx: ServerContext, rep: ((result) => void)) => {
+server.call("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async function (ctx: ServerContext) {
   log.info(`getWallet, uid: ${ctx.uid}`);
-  if (!verify([uuidVerifier("uid", ctx.uid)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
+  try {
+    verify([uuidVerifier("uid", ctx.uid)]);
+  } catch (error) {
+    return { code: 400, msg: error.join("\n") };
   }
-  ctx.cache.hget("wallet-entities", ctx.uid, function (err, result) {
-    if (err || result === "" || result === null) {
-      if (err) {
-        log.error(err);
-      }
-      rep({ code: 404, msg: "Wallet not found" });
-    } else {
-      let sum = 0;
-      msgpack_decode(result).then(wallet => {
-        for (const account of wallet["accounts"]) {
-          const balance = account.balance0 * 100 + account.balance1 * 100 + account.balance2 * 100;
-          sum += balance;
-        }
 
-        const result1 = { accounts: wallet["accounts"], balance: sum / 100, id: ctx.uid };
-        rep({ code: 200, data: result1 });
-      }).catch(e => {
-        rep({ code: 500, data: "Wallet in cache is invalid" });
-      });
+  try {
+    const wallet_buffer: Buffer = await ctx.cache.hgetAsync("wallet-entities", ctx.uid);
+    if (wallet_buffer === null || String(wallet_buffer) === "") {
+      return { code: 404, msg: "Wallet not found" };
+    } else {
+      const wallet: Object = msgpack_decode(wallet_buffer);
+      let sum_of_accounts: number = 0;
+      for (const account of wallet["accounts"]) {
+        const balance = account.balance0 * 100 + account.balance1 * 100 + account.balance2 * 100;
+        sum_of_accounts += balance;
+      }
+      let result: Object = { accounts: wallet["accounts"], balance: sum_of_accounts / 100, id: ctx.uid };
+      return { code: 200, data: result };
     }
-  });
+  } catch (error) {
+    return { code: 500, msg: error };
+  }
 });
 
 server.call("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", (ctx: ServerContext, rep: ((result) => void), aid: string, offset: number, limit: number) => {
