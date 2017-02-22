@@ -63,7 +63,7 @@ server.call("createAccount", allowAll, "初始化钱包帐号", "初始化钱包
   wait_for_response(ctx.cache, cbflag, rep);
 });
 
-server.call("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async function (ctx: ServerContext) {
+server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async function (ctx: ServerContext) {
   log.info(`getWallet, uid: ${ctx.uid}`);
   try {
     verify([uuidVerifier("uid", ctx.uid)]);
@@ -76,7 +76,8 @@ server.call("getWallet", allowAll, "获取钱包实体", "包含用户所有帐�
     if (wallet_buffer === null || String(wallet_buffer) === "") {
       return { code: 404, msg: "Wallet not found" };
     } else {
-      const wallet: Object = msgpack_decode(wallet_buffer);
+      const wallet: Object = await msgpack_decode(wallet_buffer);
+      log.info("wallet: " + JSON.stringify(wallet));
       let sum_of_accounts: number = 0;
       for (const account of wallet["accounts"]) {
         const balance = account.balance0 * 100 + account.balance1 * 100 + account.balance2 * 100;
