@@ -1,4 +1,4 @@
-import { Server, ServerContext, ServerFunction, CmdPacket, Permission, wait_for_response, msgpack_decode } from "hive-service";
+import { Server, ServerContext, ServerFunction, CmdPacket, Permission, wait_for_response, waitingAsync, msgpack_decode } from "hive-service";
 import { RedisClient, Multi } from "redis";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
@@ -147,21 +147,17 @@ server.call("updateAccountBalance", allowAll, "更新帐号余额", "唯一来�
   })();
 });
 
-server.call("recharge", allowAll, "钱包充值", "来自order模块", (ctx: ServerContext, rep: ((result: any) => void), oid: string) => {
+server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", async function (ctx: ServerContext, oid: string) {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}`);
-  if (!verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
+  try {
+    verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
+  } catch (error) {
+    return { code: 400, msg: error.join("\n") };
   }
-  const cbflag = uuid.v1();
-  const domain = ctx.domain;
-  const pkt: CmdPacket = { cmd: "recharge", args: [domain, ctx.uid, oid, cbflag] };
-  ctx.publish(pkt);
-  wait_for_response(ctx.cache, cbflag, rep);
+  const args = { uid: ctx.uid, oid: oid };
+  let cbflag: string = uuid.v1();
+  ctx.push("wallet-events-disque", cbflag, args);
+  return waitingAsync(ctx);
 });
 
 
