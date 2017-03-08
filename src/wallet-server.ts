@@ -1,9 +1,10 @@
-import { Server, ServerContext, ServerFunction, CmdPacket, Permission, wait_for_response, waitingAsync, msgpack_decode } from "hive-service";
+import { Server, ServerContext, ServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, rpc } from "hive-service";
 import { RedisClient, Multi } from "redis";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import { verify, uuidVerifier, stringVerifier, numberVerifier } from "hive-verify";
 import * as bluebird from "bluebird";
+import { AccountEvent, TransactionEvent } from "./wallet-define";
 
 let log = bunyan.createLogger({
   name: "wallet-server",
@@ -25,126 +26,58 @@ let log = bunyan.createLogger({
   ]
 });
 
-let wallet_entities = "wallet-entities";
-let transactions = "transactions-";
-
 export const server = new Server();
 
 const allowAll: Permission[] = [["mobile", true], ["admin", true]];
 const mobileOnly: Permission[] = [["mobile", true], ["admin", false]];
 const adminOnly: Permission[] = [["mobile", false], ["admin", true]];
 
-server.call("createAccount", allowAll, "初始化钱包帐号", "初始化钱包帐号，若钱包不存在，则创建钱包", (ctx: ServerContext, rep: ((result: any) => void), vid: string, pid: string, uid?: string) => {
-  log.info(`createAccount, vid: ${vid}, pid: ${pid}, uid: ${uid ? uid : ctx.uid}`);
-  if (uid) {
-    if (!verify([uuidVerifier("uid", uid), uuidVerifier("vid", vid), uuidVerifier("pid", pid)], (errors: string[]) => {
-      rep({
-        code: 400,
-        msg: errors.join("\n")
-      });
-    })) {
-      return;
-    }
-  } else {
-    if (!verify([uuidVerifier("uid", ctx.uid), uuidVerifier("vid", vid), uuidVerifier("pid", pid)], (errors: string[]) => {
-      rep({
-        code: 400,
-        msg: errors.join("\n")
-      });
-    })) {
-      return;
-    }
+server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async (ctx: ServerContext, slim?: boolean, uid?: string) => {
+  if (!uid) {
+    uid = ctx.uid;
   }
-  const aid = uuid.v1();
-  const domain = ctx.domain;
-  const cbflag = aid;
-  const pkt: CmdPacket = { cmd: "createAccount", args: [domain, uid ? uid : ctx.uid, vid, pid, aid, cbflag] };
-  ctx.publish(pkt);
-  wait_for_response(ctx.cache, cbflag, rep);
-});
-
-server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async function (ctx: ServerContext) {
-  log.info(`getWallet, uid: ${ctx.uid}`);
+  if (!slim) {
+    slim = true;
+  }
+  log.info(`getWallet, slim: ${slim}, uid: ${uid}`);
   try {
     verify([uuidVerifier("uid", ctx.uid)]);
   } catch (error) {
-    return { code: 400, msg: error.join("\n") };
+    ctx.report(3, error);
+    return { code: 400, msg: "参数无法通过验证: " + error.message };
   }
 
+  const buf = await ctx.cache.hgetAsync(slim ? "wallet-slim-entities" : "wallet-entities", uid);
+  if (buf) {
+    const wallet = await msgpack_decode_async(buf);
+    return { code: 200, data: wallet };
+  } else {
+    return { code: 404, msg: "钱包不存在" };
+  }
+});
+
+server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", async (ctx: ServerContext, offset: number, limit: number, uid?: string) => {
+  if (!uid) {
+    uid = ctx.uid;
+  }
+  log.info(`getTransactions, offset: ${offset}, limit: ${limit}, uid: ${uid}`);
   try {
-    const wallet_buffer: Buffer = await ctx.cache.hgetAsync("wallet-entities", ctx.uid);
-    if (wallet_buffer === null || String(wallet_buffer) === "") {
-      return { code: 404, msg: "Wallet not found" };
-    } else {
-      const wallet: Object = await msgpack_decode(wallet_buffer);
-      log.info("wallet: " + JSON.stringify(wallet));
-      let sum_of_accounts: number = 0;
-      for (const account of wallet["accounts"]) {
-        const balance = account.balance0 * 100 + account.balance1 * 100 + account.balance2 * 100;
-        sum_of_accounts += balance;
-      }
-      let result: Object = { accounts: wallet["accounts"], balance: sum_of_accounts / 100, id: ctx.uid };
-      return { code: 200, data: result };
-    }
+    verify([
+      uuidVerifier("uid", uid),
+      numberVerifier("offset", offset),
+      numberVerifier("limit", limit)
+    ]);
   } catch (error) {
-    return { code: 500, msg: error };
+    ctx.report(3, error);
+    return { code: 400, msg: "参数无法通过验证: " + error.message };
   }
-});
-
-server.call("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", (ctx: ServerContext, rep: ((result) => void), aid: string, offset: number, limit: number) => {
-  log.info(`getTransactions, aid: ${aid}, offset: ${offset}, limit: ${limit}`);
-  if (!verify([uuidVerifier("aid", aid)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
+  const pkts = await ctx.cache.zrevrangebyscoreAsync(`transactions:${uid}`, offset, limit);
+  const transactions = [];
+  for (const pkt of pkts) {
+    const transaction = await msgpack_decode_async(pkt);
+    transactions.push(transaction);
   }
-  (async () => {
-    try {
-      const pkts = await ctx.cache.zrevrangebyscoreAsync(`transactions:${aid}`, offset, limit);
-      const transactions = [];
-      for (const pkt of pkts) {
-        const transaction = await msgpack_decode(pkt);
-        transactions.push(transaction);
-      }
-      rep({ code: 200, data: transactions });
-    } catch (e) {
-      log.error(e);
-      rep({ code: 500, msg: e.message });
-    }
-  })();
-});
-
-// vid: , pid: , type0:, type1:, balance0: , balance1: , balance2: , title: string, oid: string, uid ?: string) => {
-server.call("updateAccountBalance", allowAll, "更新帐号余额", "唯一来源为订单充值", (ctx: ServerContext, rep: ((result) => void), vid: string, pid: string, type0: number, type1: number, balance0: number, balance1: number, balance2: number, title: string, oid: string, uid: string) => {
-  log.info(`updateAccountBalance  domain: ${ctx.domain}, uid: ${uid}, vid: ${vid}, pid: ${pid}, type0: ${type0}, type1: ${type1}, balance0: ${balance0}, balance1: ${balance1}, balance2: ${balance2}, title: ${title}, oid: ${oid}`);
-  const domain = ctx.domain;
-  const cbflag = uuid.v1();
-  (async () => {
-    try {
-      const aid = await ctx.cache.hgetAsync("vid-aid", vid + pid);
-      if (aid === null || aid === "") {
-        rep({
-          code: 500,
-          msg: "accounts not found"
-        });
-      } else {
-        let args: Object[] = [];
-        args = [domain, vid, aid, pid, type0, type1, balance0, balance1, balance2, title, oid, uid, cbflag];
-        const pkt: CmdPacket = { cmd: "updateAccountBalance", args: args };
-        ctx.publish(pkt);
-        wait_for_response(ctx.cache, cbflag, rep);
-      }
-    } catch (e) {
-      log.info(e);
-      rep({
-        code: 500,
-        msg: e.message
-      });
-    }
-  })();
+  return { code: 200, data: transactions };
 });
 
 server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", async function (ctx: ServerContext, oid: string) {
@@ -152,15 +85,103 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
   try {
     verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
   } catch (error) {
-    return { code: 400, msg: error.join("\n") };
+    ctx.report(3, error);
+    return { code: 400, msg: "参数无法通过验证: " + error.message };
   }
-  const args = { uid: ctx.uid, oid: oid };
-  let cbflag: string = uuid.v1();
-  ctx.push("wallet-events-disque", cbflag, args);
-  return waitingAsync(ctx);
+
+  const ordrep = await rpc(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
+  if (ordrep["code"] === 200) {
+    const order = ordrep["data"];
+    const now = new Date();
+
+    const tevents: TransactionEvent[] = [
+      {
+        id: uuid.v4(),
+        type: 1,
+        uid: ctx.uid,
+        title: "加入计划充值",
+        license: order.vehicle.license,
+        amount: order.payment,
+        occurred_at: new Date(now.getTime() + 1),
+        vid: order.vehicle.id,
+        oid: order.id,
+      },
+      (order.summary != order.payment) ? {
+        id: uuid.v4(),
+        type: 2,
+        uid: ctx.uid,
+        title: "优惠补贴",
+        license: order.vehicle.license,
+        amount: order.summary - order.payment,
+        occurred_at: new Date(now.getTime() + 2),
+        vid: order.vehicle.id,
+        oid: order.id,
+      } : null,
+      {
+        id: uuid.v4(),
+        type: 3,
+        uid: ctx.uid,
+        title: "缴纳管理费",
+        license: order.vehicle.license,
+        amount: -(order.summary * 0.2),
+        occurred_at: new Date(now.getTime() + 3),
+        vid: order.vehicle.id,
+        oid: order.id,
+      },
+      {
+        id: uuid.v4(),
+        type: 4,
+        uid: ctx.uid,
+        title: "试运行期间管理费免缴，中途退出计划不可提现",
+        license: order.vehicle.license,
+        amount: (order.summary * 0.2),
+        occurred_at: new Date(now.getTime() + 4),
+        vid: order.vehicle.id,
+        oid: order.id,
+      }
+    ];
+
+    for (const event of tevents) {
+      if (event) {
+        ctx.push("transaction-events", event);
+      }
+    }
+
+    const aevents: AccountEvent[] = [
+      {
+        id: uuid.v4(),
+        type: 3,
+        opid: ctx.uid,
+        uid: ctx.uid,
+        occurred_at: new Date(now.getTime() + 3),
+        amount: order.summary * 0.2,
+        vid: order.vehicle.id,
+        oid: order.id,
+      },
+      {
+        id: uuid.v4(),
+        type: 5,
+        opid: ctx.uid,
+        uid: ctx.uid,
+        occurred_at: new Date(now.getTime() + 5),
+        amount: order.summary * 0.8,
+        vid: order.vehicle.id,
+        oid: order.id,
+      }
+    ];
+
+    for (const event of aevents) {
+      ctx.push("account-events", event);
+    }
+
+    return await waitingAsync(ctx, 8);
+  } else {
+    return { code: 404, msg: "订单不存在" };
+  }
 });
 
 
+/*
 server.call("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结,账户余额不会改变", (ctx: ServerContext, rep: ((result: any) => void), amount: number, maid: string, aid: string, type: number) => {
   log.info(`freeze, amount: ${amount}, maid: ${maid}, aid: ${aid}, type: ${type}`);
   if (!verify([uuidVerifier("maid", maid), uuidVerifier("aid", aid), numberVerifier("amount", amount), numberVerifier("type", type)], (errors: string[]) => {
@@ -213,49 +234,17 @@ server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助�
   ctx.publish(pkt);
   wait_for_response(ctx.cache, cbflag, rep);
 });
+*/
 
-
-server.call("cashin", adminOnly, "增加提现金额", "用户计划到期或者提前退出计划", (ctx: ServerContext, rep: ((result: any) => void), amount: number, oid: string) => {
-  log.info(`debit, amount: ${amount}, oid: ${oid}`);
-  if (!verify([uuidVerifier("oid", oid), numberVerifier("amount", amount)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
+server.callAsync("refresh", adminOnly, "刷新", "刷新数据", async (ctx: ServerContext, uid?: string) => {
+  if (uid) {
+    log.info(`refresh, uid: ${uid}`);
+  } else {
+    log.info(`refresh`);
   }
-  const cbflag = uuid.v1();
-  const domain = ctx.domain;
-  const pkt: CmdPacket = { cmd: "debit", args: [domain, ctx.uid, amount, oid, cbflag] };
+  const pkt: CmdPacket = { cmd: "refresh", args: uid ? [uid] : [] };
   ctx.publish(pkt);
-  wait_for_response(ctx.cache, cbflag, rep);
+  return await waitingAsync(ctx);
 });
 
-
-server.call("cashout", adminOnly, "提用户现", "用户将可提现金额提现", (ctx: ServerContext, rep: ((result: any) => void), amount: number) => {
-  log.info(`debit, amount: ${amount}`);
-  if (!verify([numberVerifier("amount", amount)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
-  }
-  const cbflag = uuid.v1();
-  const domain = ctx.domain;
-  const pkt: CmdPacket = { cmd: "debit", args: [domain, ctx.uid, amount, cbflag] };
-  ctx.publish(pkt);
-  wait_for_response(ctx.cache, cbflag, rep);
-});
-
-
-server.call("refresh", adminOnly, "刷新", "刷新数据", (ctx: ServerContext, rep: ((result: any) => void)) => {
-  log.info(`refresh`);
-  const pkt: CmdPacket = { cmd: "refresh", args: null };
-  ctx.publish(pkt);
-  rep({ code: 200, data: "success" });
-});
-
-console.log("Start wallet server");
+log.info("Start wallet server");
