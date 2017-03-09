@@ -1,4 +1,4 @@
-import { BusinessEventContext, BusinessEventHandlerFunction, BusinessEventListener, ProcessorFunction, AsyncServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, msgpack_encode_async } from "hive-service";
+import { BusinessEventContext, BusinessEventHandlerFunction, BusinessEventListener, ProcessorFunction, AsyncServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, msgpack_encode_async, rpc } from "hive-service";
 import { Client as PGClient, QueryResult } from "pg";
 import { RedisClient, Multi } from "redis";
 import * as bluebird from "bluebird";
@@ -28,6 +28,25 @@ const log = bunyan.createLogger({
     }
   ]
 });
+
+function string_of_event_type(type: number) {
+  switch (type) {
+    case 0:  return "重播事件";
+    case 1:  return "普通增加";
+    case 2:  return "普通减少";
+    case 3:  return "小池增加";
+    case 4:  return "小池减少";
+    case 5:  return "大池增加";
+    case 6:  return "大池减少";
+    case 7:  return "优惠增加";
+    case 8:  return "优惠减少";
+    case 9:  return "小池冻结";
+    case 10: return "小池解冻";
+    case 11: return "大池冻结";
+    case 12: return "大池解冻";
+    default: return "未知操作";
+  }
+}
 
 function row2account(row): Account {
   return {
@@ -68,14 +87,22 @@ function row2event(row): AccountEvent {
   return event;
 }
 
-async function sync_account(db: PGClient, cache: RedisClient, account: any) {
+async function sync_account(db: PGClient, cache: RedisClient, account: Account) {
   if (account) {
-    const aeresult = await db.query("SELECT 1 FROM accounts WHERE aid = $1;", [account.id]);
-    if (aeresult.rowCount === 0) {
+    const result = await db.query("SELECT 1 FROM accounts WHERE id = $1;", [account.id]);
+    if (result.rowCount === 0) {
       await db.query("INSERT INTO accounts (id, vid, uid, balance0, balance1, bonus, frozen_balance0, frozen_balance1, cashable_balance, evtid, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12);", [account.id, account.vid, account.uid, account.balance0, account.balance1, account.bonus, account.frozen_balance0, account.frozen_balance1, account.cashable_balance, account.evtid, account.created_at, account.updated_at]);
     } else {
-      await db.query("UPDATE accounts SET balance0 = $1, balance1 = $2, bonus = $3, frozen_balance0 = $4, frozen_balance1 = $5, cashable_balance = $6, evtid = $7, created_at = $8, updated_at = $9 WHERE aid = $10;", [account.balance0, account.balance1, account.bonus, account.frozen_balance0, account.frozen_balance1, account.cashable_balance, account.evtid, account.created_at, account.updated_at, account.id]);
+      await db.query("UPDATE accounts SET balance0 = $1, balance1 = $2, bonus = $3, frozen_balance0 = $4, frozen_balance1 = $5, cashable_balance = $6, evtid = $7, created_at = $8, updated_at = $9 WHERE id = $10;", [account.balance0, account.balance1, account.bonus, account.frozen_balance0, account.frozen_balance1, account.cashable_balance, account.evtid, account.created_at, account.updated_at, account.id]);
     }
+
+    if (!account.vehicle) {
+      const vrep = await rpc<Object>("admin", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
+      if (vrep["code"] === 200) {
+        account.vehicle = vrep["data"];
+      }
+    }
+
     let wallet = null;
     const wbuf = await cache.hgetAsync("wallet-entities", account.uid);
     if (wbuf) {
@@ -116,6 +143,17 @@ async function sync_account(db: PGClient, cache: RedisClient, account: any) {
 
     const wpkt = await msgpack_encode_async(wallet);
     await cache.hsetAsync("wallet-entities", account.uid, wpkt);
+
+    for (const a of wallet.accounts) {
+      const vehicle = {
+        id: a.vehicle.id,
+        license_no: a.vehicle.license_no,
+      };
+      a.vehicle = vehicle;
+    }
+
+    const wpkt2 = await msgpack_encode_async(wallet);
+    await cache.hsetAsync("wallet-slim-entities", account.uid, wpkt2);
     return { code: 200, data: "Okay" };
   } else {
     return { code: 500, msg: "无法从事件流中合成帐号" };
@@ -123,30 +161,10 @@ async function sync_account(db: PGClient, cache: RedisClient, account: any) {
 }
 
 function play(account: Account, event: AccountEvent) {
-  if (!account && event.type !== 0) {
+  if (!account) {
     return null;
   }
   switch (event.type) {
-    case  0: {
-      if (event.vid) {
-        return {
-          id:               event.aid,
-          vid:              event.vid,
-          uid:              event.uid,
-          balance0:         0.0,
-          balance1:         0.0,
-          bonus:            0.0,
-          frozen_balance0:  0.0,
-          frozen_balance1:  0.0,
-          cashable_balance: 0.0,
-          evtid:            event.id,
-          created_at:       event.occurred_at,
-          updated_at:       event.occurred_at,
-        };
-      } else {
-        return null;
-      }
-    }
     case  1: return { ... account, evtid: event.id, updated_at: event.occurred_at, cashable_balance: account.cashable_balance + event.amount };
     case  2: return { ... account, evtid: event.id, updated_at: event.occurred_at, cashable_balance: account.cashable_balance - event.amount };
     case  3: return { ... account, evtid: event.id, updated_at: event.occurred_at, balance0: account.balance0 + event.amount };
@@ -159,6 +177,7 @@ function play(account: Account, event: AccountEvent) {
     case 10: return { ... account, evtid: event.id, updated_at: event.occurred_at, balance0: account.balance0 + event.amount, frozen_balance0: account.frozen_balance0 - event.amount };
     case 11: return { ... account, evtid: event.id, updated_at: event.occurred_at, balance1: account.balance1 - event.amount, frozen_balance1: account.frozen_balance1 + event.amount };
     case 12: return { ... account, evtid: event.id, updated_at: event.occurred_at, balance1: account.balance1 + event.amount, frozen_balance1: account.frozen_balance1 - event.amount };
+    default: return account;
   }
 }
 
@@ -171,10 +190,10 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
   } else {
     since = new Date(0);
   }
-  const eresult = await db.query("SELECT id FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false;", [aid, since]);
+  const eresult = await db.query("SELECT id, type, opid, uid, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false;", [aid, since]);
   if (eresult.rowCount > 0) {
     // 2. get the snapshot of the account
-    const aresult = await db.query("SELECT id, vid, uid, balance0, balance1, bonus, frozen_balance0, frozen_balance1, cashable_balance, evtid, created_at, updated_at FROM accounts WHERE aid = $1;", [aid]);
+    const aresult = await db.query("SELECT id, vid, uid, balance0, balance1, bonus, frozen_balance0, frozen_balance1, cashable_balance, evtid, created_at, updated_at FROM accounts WHERE id = $1;", [aid]);
     if (aresult.rowCount > 0) {
       // got the account
       let account = row2account(aresult.rows[0]);
@@ -185,71 +204,79 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
       // 3. sync the snapshot of the account
       return await sync_account(db, cache, account);
     } else {
-      // account not existed
-      let account = null;
-      for (const row of eresult.rows) {
-        const event = row2event(row);
-        account = play(account, event);
-      }
-      // 3. sync the snapshot of the account
-      return await sync_account(db, cache, account);
+      return { code: 404, msg: "帐号不存在，无法执行事件流" };
     }
   } else {
     // no event need to play
-    return { code: 200, data: "没有可以执行的事件" };
+    return { code: 404, msg: "没有可以执行的事件" };
   }
 }
 
 listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
-  const type = data["type"];
 
-  switch (type) {
-    case 3:
-    case 5:
-      return await recharge(ctx, data);
-    default:
-      break;
-  }
-});
-
-async function recharge(ctx: BusinessEventContext, event: AccountEvent): Promise<any> {
-  const db: PGClient = ctx.db;
-  const cache: RedisClient = ctx.cache;
+  const event: AccountEvent = data as AccountEvent;
+  const db: PGClient        = ctx.db;
+  const cache: RedisClient  = ctx.cache;
 
   const type        = event.type;
   const oid         = event.oid;
-  const uid         = event.uid;
+  const aid         = event.aid;
+  const maid        = event.maid;
   const opid        = event.opid;
   const vid         = event.vid;
   const amount      = event.amount;
   const occurred_at = event.occurred_at;
-  let aid           = null;
+  let uid           = event.uid;
 
-
-	// whether does account exist?
-  // if not, create it
-  const aresult = await db.query("SELECT id FROM accounts WHERE uid = $1 AND vid = $2;", [uid, vid]);
+  // whether does account exist?
+  await db.query("BEGIN;");
+  const aresult = await db.query("SELECT 1 FROM accounts WHERE id = $1;", [aid]);
   if (aresult.rowCount === 0) {
-    const aresult1 = await db.query("SELECT id, aid FROM account_events WHERE uid = $1 AND vid = $2 AND type = 0;", [uid, vid]);
-    if (aresult1.rowCount === 0) {
-			// no account at all, create it
-			aid = uuid.v4();
-			await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [uuid.v4(), 0, opid, uid, aid, new Date(occurred_at.getTime() - 10), JSON.stringify({ vid: vid })]);
-		} else {
-			aid = aresult1.rows[0].aid;
-		}
-  } else {
-    aid = aresult.rows[0].id;
+    if (vid && uid) {
+      // no account, but we can create it
+      await db.query("INSERT INTO accounts (id, vid, uid, balance0, balance1, bonus, frozen_balance0, frozen_balance1, cashable_balance, created_at, updated_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11);", [aid, vid, uid, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, occurred_at, occurred_at]);
+    } else {
+      await db.query("ROLLBACK;");
+      return { code: 404, msg: "帐号不存在，无法执行事件: " + string_of_event_type(type) };
+    }
+  }
+
+  if (!uid) {
+    const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1;", [aid]);
+    if (result.rowCount > 0) {
+      uid = result.rows[0].uid;
+    } else {
+      await db.query("ROLLBACK;");
+      return { code: 404, msg: "用户不存在，无法执行事件: " + string_of_event_type(type) };
+    }
   }
 
   // whether has event occurred?
   // if not, save and play it
-  const eresult = await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'oid' = $4 AND deleted = false;", [aid, uid, type, oid]);
+  const eresult = oid ?
+    await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'oid' = $4 AND deleted = false;", [aid, uid, type, oid]) :
+    (maid ?
+     await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'maid' = $4 AND deleted = false;", [aid, uid, type, maid])
+     :
+       { rowCount: 0 }
+    );
   if (eresult.rowCount === 0) {
     // event not found
-    await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [uuid.v4(), type, opid, uid, aid, occurred_at, JSON.stringify({ oid , amount })]);
-    return await play_events(db, cache, aid);
+    if (type === 0) {
+      // special event to replay
+      await db.query("UPDATE accounts SET evtid = NULL, balance0 = 0, balance1 = 0, frozen_balance0 = 0, frozen_balance1 = 0, cashable_balance = 0, bonus = 0 WHERE id = $1;", [aid]);
+    } else {
+      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [uuid.v4(), type, opid, uid, aid, occurred_at, oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })]);
+    }
+    const result = await play_events(db, cache, aid);
+    if (result["code"] === 200) {
+      await db.query("COMMIT;");
+    } else {
+      await db.query("ROLLBACK;");
+    }
+    return result;
   } else {
-    return { code: 208, msg: "重复充值请求" }
+    await db.query("ROLLBACK;");
+    return { code: 208, msg: "重复执行事件: " + string_of_event_type(type) };
   }
-}
+});

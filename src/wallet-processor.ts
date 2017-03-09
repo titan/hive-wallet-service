@@ -50,7 +50,16 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
   const accounts: Account[] = [];
   let wallet: Wallet = null;
   for (const row of result.rows) {
-    if (wallet && wallet.uid !== row.uid) {
+    if (!wallet) {
+      wallet = {
+        uid:      row.uid,
+        frozen:   0.0,
+        cashable: 0.0,
+        balance:  0.0,
+        accounts: []
+      };
+    }
+    if (wallet.uid !== row.uid) {
 
       let frozen   = 0.0;
       let cashable = 0.0;
@@ -70,14 +79,6 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
       wallet.balance  = balance;
 
       wallets.push(wallet);
-      wallet = {
-        uid:      row.uid,
-        frozen:   0.0,
-        cashable: 0.0,
-        balance:  0.0,
-        accounts: []
-      };
-    } else {
       wallet = {
         uid:      row.uid,
         frozen:   0.0,
@@ -133,6 +134,8 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
     const pkt = await msgpack_encode_async(wallet);
     multi.hset("wallet-entities", wallet.uid, pkt);
   }
+  await multi.execAsync();
+  const multi1 = bluebird.promisifyAll(cache.multi()) as Multi;
   for (const wallet of wallets) {
     for (const account of wallet.accounts) {
       if (account.vehicle) {
@@ -144,9 +147,9 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
       }
     }
     const pkt = await msgpack_encode_async(wallet);
-    multi.hset("wallet-slim-entities", wallet.uid, pkt);
+    multi1.hset("wallet-slim-entities", wallet.uid, pkt);
   }
-  return multi.execAsync();
+  return multi1.execAsync();
 }
 
 async function refresh_transitions(db, cache, domain: string, uid?: string): Promise<void> {

@@ -2,7 +2,7 @@ export interface AccountEvent {
   id: string;
   type: number;
   opid: string;
-  uid: string;
+  uid?: string;
   aid?: string;
   amount: number;
   occurred_at: Date;
@@ -52,9 +52,9 @@ export interface Transaction {
 export interface TransactionEvent {
   id: string;
   type: number;
-  uid: string;
+  uid?: string;
   title: string;
-  license: string;
+  license?: string;
   amount: number;
   occurred_at: Date;
   oid?: string;
