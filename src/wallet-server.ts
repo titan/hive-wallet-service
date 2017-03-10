@@ -367,6 +367,14 @@ server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助�
 
 server.callAsync("replay", adminOnly, "重播事件", "重新执行所有已发生的事件", async (ctx: ServerContext, aid: string) => {
   log.info(`replay, aid: ${aid}`);
+  try {
+    verify([
+      uuidVerifier("aid", aid),
+    ]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: "参数无法通过验证: " + error.message };
+  }
   const aevent: AccountEvent = {
     id:          null,
     type:        0,
