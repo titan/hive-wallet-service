@@ -259,7 +259,7 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
     amount:      amount,
     occurred_at: now,
     maid:        maid,
-    undo:        true,
+    undo:        false,
   };
   ctx.push("transaction-events", tevent);
   const result = await waitingAsync(ctx);
@@ -275,33 +275,78 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
       undo:        false,
     };
     ctx.push("account-events", aevent);
-    return await waitingAsync(ctx);
+    const result1 = await waitingAsync(ctx);
+    if (result1["code"] === 200) {
+      return result1;
+    } else {
+      tevent.undo = true;
+      ctx.push("transaction-events", tevent);
+      await waitingAsync(ctx);
+      return result;
+    }
   } else {
-    tevent.undo = true;
-    ctx.push("transaction-events", tevent);
     return result;
   }
 });
 
-/*
-server.call("unfreeze", adminOnly, "解冻资金", "用户账户资金解冻,账户余额不会改变", (ctx: ServerContext, rep: ((result: any) => void), amount: number, maid: string, aid: string) => {
+server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解冻,账户余额不会改变", async (ctx: ServerContext, amount: number, maid: string, aid: string, type: number) => {
   log.info(`unfreeze, amount: ${amount}, maid: ${maid}, aid: ${aid}`);
-  if (!verify([uuidVerifier("maid", maid), uuidVerifier("aid", aid), numberVerifier("amount", amount)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
+  try {
+    verify([
+      uuidVerifier("maid", maid),
+      uuidVerifier("aid", aid),
+      numberVerifier("amount", amount),
+      numberVerifier("type", type),
+    ]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: "参数无法通过验证: " + error.message };
   }
-  const cbflag = uuid.v1();
-  const domain = ctx.domain;
-  const pkt: CmdPacket = { cmd: "unfreeze", args: [domain, ctx.uid, amount, maid, aid, cbflag] };
-  ctx.publish(pkt);
-  wait_for_response(ctx.cache, cbflag, rep);
+  if (type !== 0 && type !== 1) {
+    return { code: 400, msg: "参数无法通过验证: type 必须为 0 或 1" };
+  }
+
+  const now = new Date();
+  const tevent: TransactionEvent = {
+    id:          uuid.v4(),
+    type:        7,
+    aid:         aid,
+    title:       "互助金解冻",
+    amount:      amount,
+    occurred_at: now,
+    maid:        maid,
+    undo:        false,
+  };
+  ctx.push("transaction-events", tevent);
+  const result = await waitingAsync(ctx);
+  if (result["code"] === 200) {
+    const aevent: AccountEvent = {
+      id:          uuid.v4(),
+      type:        0 ? 10 : 12,
+      opid:        ctx.uid,
+      aid:         aid,
+      occurred_at: now,
+      amount:      amount,
+      maid:        maid,
+      undo:        false,
+    };
+    ctx.push("account-events", aevent);
+    const result1 = await waitingAsync(ctx);
+    if (result1["code"] === 200) {
+      return result1;
+    } else {
+      tevent.undo = true;
+      ctx.push("transaction-events", tevent);
+      await waitingAsync(ctx);
+      return result;
+    }
+  } else {
+    return result;
+  }
 });
 
 
+/*
 server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助分摊扣款", (ctx: ServerContext, rep: ((result: any) => void), amount: number, maid: string) => {
   log.info(`debit, amount: ${amount}, maid: ${maid}`);
   if (!verify([uuidVerifier("maid", maid), numberVerifier("amount", amount)], (errors: string[]) => {
