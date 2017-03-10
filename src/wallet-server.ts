@@ -71,7 +71,7 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
     ctx.report(3, error);
     return { code: 400, msg: "参数无法通过验证: " + error.message };
   }
-  const pkts = await ctx.cache.zrevrangebyscoreAsync(`transactions:${uid}`, offset, limit);
+  const pkts = await ctx.cache.zrevrangeAsync(`transactions:${uid}`, offset, limit);
   const transactions = [];
   for (const pkt of pkts) {
     const transaction = await msgpack_decode_async(pkt);
