@@ -126,7 +126,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         aid:         aid,
         undo:        false,
       },
-      (order.summary != order.payment) ? {
+      (order.summary !== order.payment) ? {
         id:          uuid.v4(),
         type:        2,
         uid:         ctx.uid,
@@ -178,6 +178,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
+        undo:        false,
       },
       {
         id:          uuid.v4(),
@@ -189,6 +190,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
+        undo:        false,
       }
     ];
 
@@ -203,7 +205,26 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
           ctx.push("transaction-events", event);
         }
       }
-      return await waitingAsync(ctx);
+      const result0 = await waitingAsync(ctx);
+      if (result0["code"] === 200) {
+        return result0;
+      } else {
+        // rollback
+        for (const event of aevents) {
+          event.undo = true;
+          ctx.push("account-events", event);
+        }
+        const aevent: AccountEvent = {
+          id:          null,
+          type:        0,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: new Date(),
+          amount:      0,
+          undo:        false,
+        };
+        ctx.push("account-events", aevent);
+      }
     } else {
       return result;
     }
@@ -245,12 +266,13 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
   if (result["code"] === 200) {
     const aevent: AccountEvent = {
       id:          uuid.v4(),
-      type:        0 ? 9: 11,
+      type:        0 ? 9 : 11,
       opid:        ctx.uid,
       aid:         aid,
       occurred_at: now,
       amount:      amount,
       maid:        maid,
+      undo:        false,
     };
     ctx.push("account-events", aevent);
     return await waitingAsync(ctx);
@@ -307,6 +329,7 @@ server.callAsync("replay", adminOnly, "重播事件", "重新执行所有已发�
     aid:         aid,
     occurred_at: new Date(),
     amount:      0,
+    undo:        false,
   };
   ctx.push("account-events", aevent);
   return await waitingAsync(ctx);

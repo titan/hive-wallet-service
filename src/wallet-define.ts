@@ -9,6 +9,7 @@ export interface AccountEvent {
   oid?: string;
   vid?: string;
   maid?: string;
+  undo: boolean;
 };
 
 export interface Account {

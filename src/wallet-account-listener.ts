@@ -73,7 +73,8 @@ function row2event(row): AccountEvent {
     uid:         row.uid,
     aid:         row.aid,
     occurred_at: row.occurred_at,
-    amount:      0.0
+    amount:      0.0,
+    undo:        false,
   };
 
   if (row.data) {
@@ -124,7 +125,7 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
         cashable: 0.0,
         balance:  0.0,
         accounts: [ account ],
-      }
+      };
     }
 
     let frozen   = 0.0;
@@ -212,6 +213,52 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
   }
 }
 
+async function handle_event(db: PGClient, cache: RedisClient, event: AccountEvent) {
+
+  const oid         = event.oid;
+  const uid         = event.uid;
+  const aid         = event.aid;
+  const maid        = event.maid;
+  const opid        = event.opid;
+  const type        = event.type;
+  const amount      = event.amount;
+  const occurred_at = event.occurred_at;
+
+  // whether has event occurred?
+  // if not, save and play it
+  const eresult = oid ?
+    await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'oid' = $4 AND deleted = false;", [aid, uid, type, oid]) :
+    (maid ?
+     await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'maid' = $4 AND deleted = false;", [aid, uid, type, maid])
+     :
+       { rowCount: 0 }
+    );
+  if (eresult.rowCount === 0) {
+    // event not found
+    if (type === 0) {
+      // special event to replay
+      await db.query("UPDATE accounts SET evtid = NULL, balance0 = 0, balance1 = 0, frozen_balance0 = 0, frozen_balance1 = 0, cashable_balance = 0, bonus = 0 WHERE id = $1;", [aid]);
+    } else {
+      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [uuid.v4(), type, opid, uid, aid, occurred_at, oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })]);
+    }
+    const result = await play_events(db, cache, aid);
+    if (result["code"] === 200) {
+      await db.query("COMMIT;");
+    } else {
+      await db.query("ROLLBACK;");
+    }
+    return result;
+  } else {
+    await db.query("ROLLBACK;");
+    return { code: 208, msg: "重复执行事件: " + string_of_event_type(type) };
+  }
+}
+
+async function handle_undo_event(db: PGClient, cache: RedisClient, event: AccountEvent) {
+  await db.query("DELETE FROM account_events WHERE id = $1", [event.id]);
+  return { code: 200, data: `AccountEvent ${event.id} deleted` };
+}
+
 listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
 
   const event: AccountEvent = data as AccountEvent;
@@ -245,38 +292,16 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
     const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1;", [aid]);
     if (result.rowCount > 0) {
       uid = result.rows[0].uid;
+      event.uid = uid;
     } else {
       await db.query("ROLLBACK;");
       return { code: 404, msg: "用户不存在，无法执行事件: " + string_of_event_type(type) };
     }
   }
 
-  // whether has event occurred?
-  // if not, save and play it
-  const eresult = oid ?
-    await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'oid' = $4 AND deleted = false;", [aid, uid, type, oid]) :
-    (maid ?
-     await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'maid' = $4 AND deleted = false;", [aid, uid, type, maid])
-     :
-       { rowCount: 0 }
-    );
-  if (eresult.rowCount === 0) {
-    // event not found
-    if (type === 0) {
-      // special event to replay
-      await db.query("UPDATE accounts SET evtid = NULL, balance0 = 0, balance1 = 0, frozen_balance0 = 0, frozen_balance1 = 0, cashable_balance = 0, bonus = 0 WHERE id = $1;", [aid]);
-    } else {
-      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [uuid.v4(), type, opid, uid, aid, occurred_at, oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })]);
-    }
-    const result = await play_events(db, cache, aid);
-    if (result["code"] === 200) {
-      await db.query("COMMIT;");
-    } else {
-      await db.query("ROLLBACK;");
-    }
-    return result;
+  if (event.undo) {
+    return handle_undo_event(db, cache, event);
   } else {
-    await db.query("ROLLBACK;");
-    return { code: 208, msg: "重复执行事件: " + string_of_event_type(type) };
+    return handle_event(db, cache, event);
   }
 });
