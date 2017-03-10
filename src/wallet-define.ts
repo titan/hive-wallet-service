@@ -62,4 +62,5 @@ export interface TransactionEvent {
   aid?: string;
   maid?: string;
   sn?: string;
+  undo: boolean;
 };

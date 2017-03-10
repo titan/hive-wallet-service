@@ -124,6 +124,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
+        undo:        false,
       },
       (order.summary != order.payment) ? {
         id:          uuid.v4(),
@@ -136,6 +137,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
+        undo:        false,
       } :            null,
       {
         id:          uuid.v4(),
@@ -148,6 +150,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
+        undo:        false,
       },
       {
         id:          uuid.v4(),
@@ -160,6 +163,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
+        undo:        false,
       }
     ];
 
@@ -234,6 +238,7 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
     amount:      amount,
     occurred_at: now,
     maid:        maid,
+    undo:        true,
   };
   ctx.push("transaction-events", tevent);
   const result = await waitingAsync(ctx);
@@ -250,6 +255,8 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
     ctx.push("account-events", aevent);
     return await waitingAsync(ctx);
   } else {
+    tevent.undo = true;
+    ctx.push("transaction-events", tevent);
     return result;
   }
 });

@@ -29,38 +29,16 @@ const log = bunyan.createLogger({
   ]
 });
 
-listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
+async function handle_undo_event(db: PGClient, cache: RedisClient, event: TransactionEvent) {
+  await db.query("DELETE FROM transactions WHERE id = $1;", [event.id]);
+  await cache.zremrangebyscoreAsync(`transactions:${event.uid}`, event.occurred_at.getTime(), event.occurred_at.getTime());
 
-  const event              = data as TransactionEvent;
-  const db: PGClient       = ctx.db;
-  const cache: RedisClient = ctx.cache;
+  return { code: 200, data: `Transaction ${event.id} deleted` };
+}
 
-  let aid = event.aid;
-  let uid = event.uid;
-
-  if (!aid && !uid) {
-    return { code: 404, msg: "需要 uid 或 aid" };
-  }
-
-  // get aid from database if it does not exist
-  if (!aid) {
-    if (!uid || !event.vid) {
-      return { code: 404, msg: "需要提供 uid 和 vid" };
-    }
-    const result = await db.query("SELECT id FROM accounts WHERE uid = $1 AND vid = $2", [uid, event.vid]);
-    if (result.rowCount === 1) {
-      aid = result.rows[0].id;
-    }
-  }
-
-  // get uid from database if it does not exist
-  if (!uid) {
-    const result = await db.query("SELECT DISTINCT uid FROM accounts WHERE id = $1", [uid]);
-    if (result.rowCount === 1) {
-      uid = result.rows[0].uid;
-    }
-  }
-
+async function handle_event(db: PGClient, cache: RedisClient, event: TransactionEvent) {
+  const aid = event.aid;
+  const uid = event.uid;
   // get license if it does not exist
   let license = event.license;
   if (!license) {
@@ -100,5 +78,46 @@ listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
   } else {
     // it exists
     return { code: 208, msg: "重复的交易记录：" + (license ? "(" + license + ")" : "") + event.title };
+  }
+}
+
+listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
+
+  const event              = data as TransactionEvent;
+  const db: PGClient       = ctx.db;
+  const cache: RedisClient = ctx.cache;
+
+  let aid = event.aid;
+  let uid = event.uid;
+
+  if (!aid && !uid) {
+    return { code: 404, msg: "需要 uid 或 aid" };
+  }
+
+  // get aid from database if it does not exist
+  if (!aid) {
+    if (!uid || !event.vid) {
+      return { code: 404, msg: "需要提供 uid 和 vid" };
+    }
+    const result = await db.query("SELECT id FROM accounts WHERE uid = $1 AND vid = $2", [uid, event.vid]);
+    if (result.rowCount === 1) {
+      aid = result.rows[0].id;
+      event.aid = aid;
+    }
+  }
+
+  // get uid from database if it does not exist
+  if (!uid) {
+    const result = await db.query("SELECT DISTINCT uid FROM accounts WHERE id = $1", [aid]);
+    if (result.rowCount === 1) {
+      uid = result.rows[0].uid;
+      event.uid = uid;
+    }
+  }
+
+  if (event.undo) {
+    return handle_undo_event(db, cache, event);
+  } else {
+    return handle_event(db, cache, event);
   }
 });

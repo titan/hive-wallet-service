@@ -212,7 +212,7 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
   }
 }
 
-listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
+listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
 
   const event: AccountEvent = data as AccountEvent;
   const db: PGClient        = ctx.db;
