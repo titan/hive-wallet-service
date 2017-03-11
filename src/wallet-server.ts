@@ -41,10 +41,10 @@ server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所�
   }
   log.info(`getWallet, slim: ${slim}, uid: ${uid}`);
   try {
-    verify([uuidVerifier("uid", ctx.uid)]);
+    await verify([uuidVerifier("uid", ctx.uid)]);
   } catch (error) {
     ctx.report(3, error);
-    return { code: 400, msg: "参数无法通过验证: " + error.message };
+    return { code: 400, msg: error.message };
   }
 
   const buf = await ctx.cache.hgetAsync(slim ? "wallet-slim-entities" : "wallet-entities", uid);
@@ -62,14 +62,14 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
   }
   log.info(`getTransactions, offset: ${offset}, limit: ${limit}, uid: ${uid}`);
   try {
-    verify([
+    await verify([
       uuidVerifier("uid", uid),
       numberVerifier("offset", offset),
       numberVerifier("limit", limit)
     ]);
   } catch (error) {
     ctx.report(3, error);
-    return { code: 400, msg: "参数无法通过验证: " + error.message };
+    return { code: 400, msg: error.message };
   }
   const pkts = await ctx.cache.zrevrangeAsync(`transactions:${uid}`, offset, limit);
   const transactions = [];
@@ -83,10 +83,10 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
 server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", async function (ctx: ServerContext, oid: string) {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}`);
   try {
-    verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
+    await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
   } catch (error) {
     ctx.report(3, error);
-    return { code: 400, msg: "参数无法通过验证: " + error.message };
+    return { code: 400, msg: error.message };
   }
 
   const ordrep = await rpc(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
@@ -236,7 +236,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
 server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结,账户余额不会改变", async (ctx: ServerContext, amount: number, maid: string, aid: string, type: number) => {
   log.info(`freeze, amount: ${amount}, maid: ${maid}, aid: ${aid}, type: ${type}`);
   try {
-    verify([
+    await verify([
       uuidVerifier("maid", maid),
       uuidVerifier("aid", aid),
       numberVerifier("amount", amount),
@@ -244,7 +244,7 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
     ]);
   } catch (error) {
     ctx.report(3, error);
-    return { code: 400, msg: "参数无法通过验证: " + error.message };
+    return { code: 400, msg: error.message };
   }
   if (type !== 0 && type !== 1) {
     return { code: 400, msg: "参数无法通过验证: type 必须为 0 或 1" };
@@ -292,7 +292,7 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
 server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解冻,账户余额不会改变", async (ctx: ServerContext, amount: number, maid: string, aid: string, type: number) => {
   log.info(`unfreeze, amount: ${amount}, maid: ${maid}, aid: ${aid}`);
   try {
-    verify([
+    await verify([
       uuidVerifier("maid", maid),
       uuidVerifier("aid", aid),
       numberVerifier("amount", amount),
@@ -300,7 +300,7 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
     ]);
   } catch (error) {
     ctx.report(3, error);
-    return { code: 400, msg: "参数无法通过验证: " + error.message };
+    return { code: 400, msg: error.message };
   }
   if (type !== 0 && type !== 1) {
     return { code: 400, msg: "参数无法通过验证: type 必须为 0 或 1" };
@@ -368,12 +368,12 @@ server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助�
 server.callAsync("replay", adminOnly, "重播事件", "重新执行所有已发生的事件", async (ctx: ServerContext, aid: string) => {
   log.info(`replay, aid: ${aid}`);
   try {
-    verify([
+    await verify([
       uuidVerifier("aid", aid),
     ]);
   } catch (error) {
     ctx.report(3, error);
-    return { code: 400, msg: "参数无法通过验证: " + error.message };
+    return { code: 400, msg: error.message };
   }
   const aevent: AccountEvent = {
     id:          null,
