@@ -1,4 +1,4 @@
-import { Processor, ProcessorFunction, ProcessorContext, rpc, msgpack_encode_async, msgpack_decode_async } from "hive-service";
+import { Processor, ProcessorFunction, ProcessorContext, rpcAsync, msgpack_encode_async, msgpack_decode_async } from "hive-service";
 import { Client as PGClient, QueryResult } from "pg";
 import { RedisClient, Multi } from "redis";
 import * as bunyan from "bunyan";
@@ -102,7 +102,7 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
       updated_at:       row.updated_at,
       vehicle:          null,
     };
-    const vrep = await rpc<Object>(domain, process.env["VEHICLE"], row.uid, "getVehicle", row.vid);
+    const vrep = await rpcAsync<Object>(domain, process.env["VEHICLE"], row.uid, "getVehicle", row.vid);
     if (vrep["code"] === 200) {
       account["vehicle"] = vrep["data"];
     }
@@ -110,22 +110,22 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
   }
   if (wallet) {
 
-		let frozen   = 0.0;
-		let cashable = 0.0;
-		let balance  = 0.0;
+    let frozen   = 0.0;
+    let cashable = 0.0;
+    let balance  = 0.0;
 
-		for (const account of wallet.accounts) {
-			frozen   += account.frozen_balance0;
-			frozen   += account.frozen_balance1;
-			cashable += account.cashable_balance;
-			balance  += account.balance0;
-			balance  += account.balance1;
-		}
-		balance += frozen + cashable;
+    for (const account of wallet.accounts) {
+      frozen   += account.frozen_balance0;
+      frozen   += account.frozen_balance1;
+      cashable += account.cashable_balance;
+      balance  += account.balance0;
+      balance  += account.balance1;
+    }
+    balance += frozen + cashable;
 
-		wallet.frozen   = frozen;
-		wallet.cashable = cashable;
-		wallet.balance  = balance;
+    wallet.frozen   = frozen;
+    wallet.cashable = cashable;
+    wallet.balance  = balance;
 
     wallets.push(wallet);
   }
@@ -142,7 +142,7 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
         const vehicle = {
           id: account.vid,
           license_no: account.vehicle.license_no,
-        }
+        };
         account.vehicle = vehicle;
       }
     }
@@ -199,7 +199,7 @@ processor.callAsync("refresh", async (ctx: ProcessorContext, uid?: string) => {
   const cache: RedisClient = ctx.cache;
   const RW = await refresh_accounts(db, cache, ctx.domain, uid);
   const RT = await refresh_transitions(db, cache, ctx.domain, uid);
-  return { code: 200, data: "Refresh done!" }
+  return { code: 200, data: "Refresh done!" };
 });
 
 log.info("Start wallet processor");

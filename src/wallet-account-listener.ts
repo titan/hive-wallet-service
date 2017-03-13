@@ -1,4 +1,4 @@
-import { BusinessEventContext, BusinessEventHandlerFunction, BusinessEventListener, ProcessorFunction, AsyncServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, msgpack_encode_async, rpc } from "hive-service";
+import { BusinessEventContext, BusinessEventHandlerFunction, BusinessEventListener, ProcessorFunction, AsyncServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, msgpack_encode_async, rpcAsync } from "hive-service";
 import { Client as PGClient, QueryResult } from "pg";
 import { RedisClient, Multi } from "redis";
 import * as bluebird from "bluebird";
@@ -98,7 +98,7 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
     }
 
     if (!account.vehicle) {
-      const vrep = await rpc<Object>("admin", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
+      const vrep = await rpcAsync<Object>("admin", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
       if (vrep["code"] === 200) {
         account.vehicle = vrep["data"];
       }

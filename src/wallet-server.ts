@@ -1,4 +1,4 @@
-import { Server, ServerContext, ServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, rpc } from "hive-service";
+import { Server, ServerContext, ServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, rpcAsync } from "hive-service";
 import { RedisClient, Multi } from "redis";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
@@ -89,7 +89,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", asyn
     return { code: 400, msg: error.message };
   }
 
-  const ordrep = await rpc(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
+  const ordrep = await rpcAsync(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
   if (ordrep["code"] === 200) {
     const order = ordrep["data"];
     if (order.uid !== ctx.uid) {
