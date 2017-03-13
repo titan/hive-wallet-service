@@ -1,10 +1,11 @@
-import { Processor, ProcessorFunction, ProcessorContext, rpcAsync, msgpack_encode_async, msgpack_decode_async } from "hive-service";
+import { Processor, ProcessorFunction, ProcessorContext, rpcAsync, msgpack_encode_async, msgpack_decode_async, waitingAsync } from "hive-service";
 import { Client as PGClient, QueryResult } from "pg";
 import { RedisClient, Multi } from "redis";
+import * as crypto from "crypto";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as bluebird from "bluebird";
-import { Account, AccountEvent, Transaction, Wallet } from "./wallet-define";
+import { Account, AccountEvent, Transaction, TransactionEvent, Wallet } from "./wallet-define";
 
 const log = bunyan.createLogger({
   name: "wallet-processor",
@@ -27,14 +28,137 @@ const log = bunyan.createLogger({
 });
 
 export const processor = new Processor();
-
-function trim(str: string) {
-  if (str) {
-    return str.trim();
+processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
+  const ordrep = await rpcAsync(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
+  if (ordrep["code"] === 200) {
+    const order = ordrep["data"];
+    if (order.uid !== ctx.uid) {
+      return { code: 404, msg: "不能对他人钱包充值！" };
+    }
+    const now = new Date();
+    const sn = crypto.randomBytes(64).toString("base64");
+    let aid = uuid.v4();
+    const dbresult = await ctx.db.query("SELECT id FROM accounts WHERE uid = $1 AND vid = $2;", [ctx.uid, order.vehicle.id]);
+    if (dbresult.rowCount > 0) {
+      aid = dbresult.rows[0].id;
+    }
+    const tevents: TransactionEvent[] = [
+      {
+        id:          uuid.v4(),
+        type:        1,
+        uid:         ctx.uid,
+        title:       "加入计划充值",
+        license:     order.vehicle.license,
+        amount:      order.payment,
+        occurred_at: new Date(now.getTime() + 1),
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      },
+      (Math.abs(order.summary - order.payment) > 0.01) ? {
+        id:          uuid.v4(),
+        type:        2,
+        uid:         ctx.uid,
+        title:       "优惠补贴",
+        license:     order.vehicle.license,
+        amount:      order.summary - order.payment,
+        occurred_at: new Date(now.getTime() + 2),
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      } :            null,
+      {
+        id:          uuid.v4(),
+        type:        3,
+        uid:         ctx.uid,
+        title:       "缴纳管理费",
+        license:     order.vehicle.license,
+        amount:      -(order.summary * 0.2),
+        occurred_at: new Date(now.getTime() + 3),
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      },
+      {
+        id:          uuid.v4(),
+        type:        4,
+        uid:         ctx.uid,
+        title:       "试运行期间管理费免缴，中途退出计划不可提现",
+        license:     order.vehicle.license,
+        amount:      (order.summary * 0.2),
+        occurred_at: new Date(now.getTime() + 4),
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      }
+    ].filter(x => x);
+    const aevents: AccountEvent[] = [
+      {
+        id:          uuid.v4(),
+        type:        3,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 3),
+        amount:      order.summary * 0.2,
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      },
+      {
+        id:          uuid.v4(),
+        type:        5,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 5),
+        amount:      order.summary * 0.8,
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      }
+    ];
+    for (const event of aevents) {
+      ctx.push("account-events", event);
+    }
+    const result = await waitingAsync(ctx, sn);
+    if (result["code"] === 200) {
+      for (const event of tevents) {
+        if (event) {
+          ctx.push("transaction-events", event);
+        }
+      }
+      const result0 = await waitingAsync(ctx, sn);
+      if (result0["code"] === 200) {
+        return result0;
+      } else {
+        // rollback
+        for (const event of aevents) {
+          event.undo = true;
+          ctx.push("account-events", event);
+        }
+        const aevent: AccountEvent = {
+          id:          null,
+          type:        0,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: new Date(),
+          amount:      0,
+          undo:        false,
+        };
+        ctx.push("account-events", aevent);
+      }
+    } else {
+      return result;
+    }
   } else {
-    return null;
+    return { code: 404, msg: "订单不存在" };
   }
-}
+});
 
 function refresh_accounts(db, cache, domain: string, uid?: string): Promise<void> {
   return sync_accounts(db, cache, domain, uid);
