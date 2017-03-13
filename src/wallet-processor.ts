@@ -4,7 +4,7 @@ import { RedisClient, Multi } from "redis";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as bluebird from "bluebird";
-import { Account, Transaction, Wallet } from "./wallet-define";
+import { Account, AccountEvent, Transaction, Wallet } from "./wallet-define";
 
 const log = bunyan.createLogger({
   name: "wallet-processor",
@@ -200,6 +200,31 @@ processor.callAsync("refresh", async (ctx: ProcessorContext, uid?: string) => {
   const RW = await refresh_accounts(db, cache, ctx.domain, uid);
   const RT = await refresh_transitions(db, cache, ctx.domain, uid);
   return { code: 200, data: "Refresh done!" };
+});
+
+processor.callAsync("replayAll", async (ctx: ProcessorContext) => {
+  log.info("replay");
+  const db: PGClient = ctx.db;
+  const cache: RedisClient = ctx.cache;
+  const result = await db.query("SELECT id FROM accounts;");
+  if (result.rowCount > 0) {
+    for (const row of result.rows) {
+      const aid = row.id;
+      const event: AccountEvent = {
+        id:          null,
+        type:        0,
+        opid:        ctx.uid,
+        aid:         aid,
+        occurred_at: null,
+        amount:      0,
+        undo:        false,
+      };
+      ctx.push("account-events", event);
+    }
+    return  { code: 200, data: "Okay" };
+  } else {
+    return { code: 404, msg: "No account to replay events" };
+  }
 });
 
 log.info("Start wallet processor");

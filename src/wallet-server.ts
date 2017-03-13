@@ -365,7 +365,7 @@ server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助�
 });
 */
 
-server.callAsync("replay", adminOnly, "重播事件", "重新执行所有已发生的事件", async (ctx: ServerContext, aid: string) => {
+server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所有已发生的事件", async (ctx: ServerContext, aid: string) => {
   log.info(`replay, aid: ${aid}`);
   try {
     await verify([
@@ -385,6 +385,13 @@ server.callAsync("replay", adminOnly, "重播事件", "重新执行所有已发�
     undo:        false,
   };
   ctx.push("account-events", aevent);
+  return await waitingAsync(ctx);
+});
+
+server.callAsync("replayAll", adminOnly, "重播事件", "重新执行所有帐号下所有已发生的事件", async (ctx: ServerContext) => {
+  log.info(`replayAll`);
+  const pkt: CmdPacket = { cmd: "replayAll", args: [] };
+  ctx.publish(pkt);
   return await waitingAsync(ctx);
 });
 
