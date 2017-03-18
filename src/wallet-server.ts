@@ -73,6 +73,7 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
   }
   const pkts = await ctx.cache.zrevrangeAsync(`transactions:${uid}`, offset, limit);
   const transactions = [];
+  log.info("got transactions: " + pkts.length);
   for (const pkt of pkts) {
     const transaction = await msgpack_decode_async(pkt);
     transactions.push(transaction);
@@ -81,7 +82,7 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
 });
 
 server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", async function (ctx: ServerContext, oid: string) {
-  log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}`);
+  log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   try {
     await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
   } catch (error) {

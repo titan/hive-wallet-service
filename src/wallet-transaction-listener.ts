@@ -90,6 +90,8 @@ listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
   let aid = event.aid;
   let uid = event.uid;
 
+  log.info(`onEvent: type: ${event.type}, aid: ${aid}, uid: ${uid}`);
+
   if (!aid && !uid) {
     return { code: 404, msg: "需要 uid 或 aid" };
   }

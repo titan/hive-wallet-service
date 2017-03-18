@@ -111,7 +111,7 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
       if (wallet.accounts) {
         const accounts = [ account ];
         for (const a of wallet.accounts) {
-          if (a.id !== account.id) {
+          if (a.vid !== account.vid) {
             accounts.push(a);
           }
         }
@@ -274,6 +274,8 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const amount      = event.amount;
   const occurred_at = event.occurred_at;
   let uid           = event.uid;
+
+  log.info(`onEvent: type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at}, uid: ${uid}`);
 
   // whether does account exist?
   await db.query("BEGIN;");

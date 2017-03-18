@@ -29,6 +29,7 @@ const log = bunyan.createLogger({
 
 export const processor = new Processor();
 processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
+  log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   const ordrep = await rpcAsync(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
   if (ordrep["code"] === 200) {
     const order = ordrep["data"];
@@ -123,16 +124,17 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
       }
     ];
     for (const event of aevents) {
-      ctx.push("account-events", event);
+      ctx.push("account-events", event, sn);
     }
     const result = await waitingAsync(ctx, sn);
     if (result["code"] === 200) {
+      const tsn = crypto.randomBytes(64).toString("base64");
       for (const event of tevents) {
         if (event) {
-          ctx.push("transaction-events", event);
+          ctx.push("transaction-events", event, tsn);
         }
       }
-      const result0 = await waitingAsync(ctx, sn);
+      const result0 = await waitingAsync(ctx, tsn);
       if (result0["code"] === 200) {
         return result0;
       } else {
@@ -276,13 +278,13 @@ async function sync_accounts(db, cache, domain: string, uid?: string): Promise<v
   return multi1.execAsync();
 }
 
-async function refresh_transitions(db, cache, domain: string, uid?: string): Promise<void> {
-  return sync_transitions(db, cache, domain, uid);
+function refresh_transactions(db, cache, domain: string, uid?: string): Promise<void> {
+  return sync_transactions(db, cache, domain, uid);
 }
 
-async function sync_transitions(db, cache, domain: string, uid?: string): Promise<void> {
-  const multi = bluebird.promisifyAll(cache.multi()) as Multi;
+async function sync_transactions(db, cache, domain: string, uid?: string): Promise<void> {
   if (!uid) {
+    const multi = bluebird.promisifyAll(cache.multi()) as Multi;
     const keys = await cache.keysAsync("transactions:*");
     for (const key of keys) {
       multi.del(key);
@@ -310,11 +312,12 @@ async function sync_transitions(db, cache, domain: string, uid?: string): Promis
     transactions.push(transaction);
   }
 
+  const multi1 = bluebird.promisifyAll(cache.multi()) as Multi;
   for (const transaction of transactions) {
     const pkt = await msgpack_encode_async(transaction);
-    multi.zadd("transactions:" + transaction["uid"], new Date(transaction["occurred_at"]), pkt);
+    multi1.zadd("transactions:" + transaction.uid, transaction.occurred_at.getTime(), pkt);
   }
-  return multi.execAsync();
+  return multi1.execAsync();
 }
 
 processor.callAsync("refresh", async (ctx: ProcessorContext, uid?: string) => {
@@ -322,7 +325,7 @@ processor.callAsync("refresh", async (ctx: ProcessorContext, uid?: string) => {
   const db: PGClient = ctx.db;
   const cache: RedisClient = ctx.cache;
   const RW = await refresh_accounts(db, cache, ctx.domain, uid);
-  const RT = await refresh_transitions(db, cache, ctx.domain, uid);
+  const RT = await refresh_transactions(db, cache, ctx.domain, uid);
   return { code: 200, data: "Refresh done!" };
 });
 
