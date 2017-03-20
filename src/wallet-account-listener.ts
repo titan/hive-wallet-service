@@ -138,9 +138,10 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
       balance += a.balance0 + a.balance1 + a.frozen_balance0 + a.frozen_balance1 + a.cashable_balance;
     }
 
+
     wallet.frozen   = frozen;
-    wallet.cashable = wallet.cashable;
-    wallet.balance  = wallet.balance;
+    wallet.cashable = cashable;
+    wallet.balance  = balance;
 
     const wpkt = await msgpack_encode_async(wallet);
     await cache.hsetAsync("wallet-entities", account.uid, wpkt);
