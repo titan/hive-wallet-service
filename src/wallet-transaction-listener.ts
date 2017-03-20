@@ -71,10 +71,44 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
     data = event.maid ? { ...data, maid: event.maid } : data;
 
     // it's new transaction
-    const r = await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);", [event.id, event.type, aid, uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at]);
-    const pkt = await msgpack_encode_async(event);
-    await cache.zaddAsync(`transactions:${event.uid}`, event.occurred_at.getTime(), pkt);
-    return { code: 200, data: "Okay" };
+    await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);", [event.id, event.type, aid, uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at]);
+    const tresult = await db.query("SELECT id, type, aid, uid, title, license, amount, data, occurred_at FROM transactions WHERE uid = $1", [uid]);
+    if (tresult.rowCount > 0) {
+      const multi = bluebird.promisifyAll(cache.multi()) as Multi;
+      const key = `transactions:${uid}`;
+      multi.del(key);
+      for (const row of tresult.rows) {
+        const transaction = {
+          id: row.id,
+          type: row.type,
+          aid: row.aid,
+          uid: row.uid,
+          title: row.title,
+          license: row.license,
+          amount: row.amount,
+          occurred_at: row.occurred_at,
+          oid: row.data.oid || undefined,
+          maid: row.data.maid || undefined,
+          sn: row.data.sn || undefined,
+        }
+        const pkt = await msgpack_encode_async(transaction);
+        multi.zadd(key, row.occurred_at.getTime(), pkt);
+      }
+      const cresult = await multi.execAsync();
+      if (cresult.code === 200) {
+        return { code: 200, data: "Okay" };
+      } else {
+        return cresult;
+      }
+    } else {
+      const pkt = await msgpack_encode_async(event);
+      const cresult = await cache.zaddAsync(`transactions:${uid}`, event.occurred_at.getTime(), pkt);
+      if (cresult.code === 200) {
+        return { code: 200, data: "Okay" };
+      } else {
+        return cresult;
+      }
+    }
   } else {
     // it exists
     return { code: 208, msg: "重复的交易记录：" + (license ? "(" + license + ")" : "") + event.title };
