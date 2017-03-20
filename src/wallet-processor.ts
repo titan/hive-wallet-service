@@ -97,6 +97,8 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         undo:        false,
       }
     ].filter(x => x);
+
+    const smoney = Math.round(order.summary * 20) / 100;
     const aevents: AccountEvent[] = [
       {
         id:          uuid.v4(),
@@ -104,7 +106,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 3),
-        amount:      order.summary * 0.2,
+        amount:      smoney,
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
@@ -116,7 +118,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 5),
-        amount:      order.summary * 0.8,
+        amount:      order.summary - smoney,
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,

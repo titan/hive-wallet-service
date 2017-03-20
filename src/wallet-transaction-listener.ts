@@ -59,19 +59,19 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
   const result = (event.type === 1 || event.type === 2 || event.type === 3 || event.type === 4) ?
     await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'oid' = $3;", [aid, event.type, event.oid]) :
     ((event.type === 6 || event.type === 7) ?
-     await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'maid' = $3;", [aid, event.type, event.maid]) :
+     await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'maid' = $3 AND data::jsonb->>'sn' = $4;", [aid, event.type, event.maid, event.sn]) :
      await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'sn' = $3;", [aid, event.type, event.sn]));
 
   if (result.rowCount === 0) {
     let data = {};
 
-    data = event.sn ? { ...data, vid: event.sn } : data;
+    data = event.sn ? { ...data, sn: event.sn } : data;
     data = event.oid ? { ...data, oid: event.oid } : data;
     data = event.vid ? { ...data, vid: event.vid } : data;
-    data = event.maid ? { ...data, vid: event.maid } : data;
+    data = event.maid ? { ...data, maid: event.maid } : data;
 
     // it's new transaction
-    await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);", [event.id, event.type, aid, event.uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at]);
+    const r = await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);", [event.id, event.type, aid, uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at]);
     const pkt = await msgpack_encode_async(event);
     await cache.zaddAsync(`transactions:${event.uid}`, event.occurred_at.getTime(), pkt);
     return { code: 200, data: "Okay" };

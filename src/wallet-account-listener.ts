@@ -256,6 +256,7 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
 
 async function handle_undo_event(db: PGClient, cache: RedisClient, event: AccountEvent) {
   await db.query("DELETE FROM account_events WHERE id = $1", [event.id]);
+  await db.query("COMMIT;");
   return { code: 200, data: `AccountEvent ${event.id} deleted` };
 }
 
