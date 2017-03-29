@@ -145,6 +145,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
           event.undo = true;
           ctx.push("account-events", event);
         }
+        // replay
         const aevent: AccountEvent = {
           id:          null,
           type:        0,
@@ -155,12 +156,135 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
           undo:        false,
         };
         ctx.push("account-events", aevent);
+        return { code: 500, msg: "更新钱包交易记录失败" };
       }
     } else {
       return result;
     }
   } else {
     return { code: 404, msg: "订单不存在" };
+  }
+});
+
+processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount: number, type: number, maid?: string, sn?: string) => {
+  log.info(`deduct, aid: ${aid}, amount: ${amount}, type: ${type}, maid: ${maid}, sn: ${sn}`);
+  const aevents: AccountEvent[] = [];
+  const now = new Date();
+  const aresult = await ctx.db.query("SELECT id, uid, balance0, balance1 FROM accounts WHERE aid = $1", [aid]);
+
+  if (aresult.rowCount === 1) {
+    const uid = aresult.rows[0].uid;
+    const sb = aresult.rows[0].balance0;
+    const bb = aresult.rows[0].balance1;
+    if (type === 3) {
+      if (sb + bb < amount) {
+        return { code: 409, msg: "扣款金额超出钱包账户余额" };
+      }
+      aevents.push({
+        id:          uuid.v4(),
+        type:        4,
+        opid:        ctx.uid,
+        uid:         uid,
+        occurred_at: new Date(now.getTime()),
+        amount:      sb,
+        aid:         aid,
+        undo:        false,
+      });
+      aevents.push({
+        id:          uuid.v4(),
+        type:        6,
+        opid:        ctx.uid,
+        uid:         uid,
+        occurred_at: new Date(now.getTime() + 1),
+        amount:      bb,
+        aid:         aid,
+        undo:        false,
+      });
+    } else if (type === 2) {
+      if (bb < amount) {
+        return { code: 409, msg: "扣款金额超出钱包账户余额" };
+      }
+      aevents.push({
+        id:          uuid.v4(),
+        type:        6,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime()),
+        amount:      amount,
+        aid:         aid,
+        undo:        false,
+      });
+    } else if (type === 1) {
+      if (sb < amount) {
+        return { code: 409, msg: "扣款金额超出钱包账户余额" };
+      }
+      aevents.push({
+        id:          uuid.v4(),
+        type:        4,
+        opid:        ctx.uid,
+        uid:         uid,
+        occurred_at: new Date(now.getTime()),
+        amount:      amount,
+        aid:         aid,
+        undo:        false,
+      });
+    }
+    const asn = crypto.randomBytes(64).toString("base64");
+    for (const event of aevents) {
+      ctx.push("account-events", event, asn);
+    }
+    const result = await waitingAsync(ctx, asn);
+    if (result["code"] === 200) {
+      let license = null;
+      try {
+        const vresult = await ctx.db.query("SELECT DISTINCT title FROM transactions WHERE aid = $1", [aid]);
+        if (vresult.rowCount > 0 && vresult.rows.filter(x => x && x !== '').length > 0) {
+          license = vresult.rows.filter(x => x && x !== '')[0];
+        }
+      } catch (e) {
+        ctx.report(3, e);
+      }
+      const tevent = {
+        id:          uuid.v4(),
+        type:        7,
+        uid:         uid,
+        title:       "互助金结算",
+        license:     license,
+        amount:      amount,
+        occurred_at: new Date(now.getTime()),
+        sn:          sn,
+        aid:         aid,
+        undo:        false,
+      };
+      const tsn = crypto.randomBytes(64).toString("base64");
+      ctx.push("transaction-events", tevent, tsn);
+      const result0 = await waitingAsync(ctx, tsn);
+      if (result0["code"] === 200) {
+        return result0;
+      } else {
+        // rollback
+        for (const event of aevents) {
+          event.undo = true;
+          ctx.push("account-events", event);
+        }
+        // replay
+        const aevent: AccountEvent = {
+          id:          null,
+          type:        0,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: new Date(),
+          amount:      0,
+          undo:        false,
+        };
+        ctx.push("account-events", aevent);
+        return { code: 500, msg: "更新钱包交易记录失败" };
+      }
+    } else {
+      return result;
+    }
+  } else {
+    return { code: 404, msg: "扣款钱包帐号不存在" };
   }
 });
 
@@ -293,7 +417,7 @@ async function sync_transactions(db, cache, domain: string, uid?: string): Promi
     }
     await multi.execAsync();
   }
-  const result = await db.query("SELECT id, uid, aid, type, license, title, amount, occurred_at, data FROM transactions" + (uid ? " WHERE uid = $1 ORDER BY occurred_at;" : " ORDER BY occurred_at;"), uid ? [uid] : []);
+  const result = await db.query("SELECT id, uid, aid, type, license, title, amount, occurred_at, data FROM transactions WHERE deleted = false" + (uid ? " AND uid = $1 ORDER BY occurred_at;" : " ORDER BY occurred_at;"), uid ? [uid] : []);
   const transactions: Transaction[] = [];
   for (const row of result.rows) {
     let transaction: Transaction = {

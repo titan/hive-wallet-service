@@ -81,7 +81,7 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
   return { code: 200, data: transactions };
 });
 
-server.callAsync("recharge", allowAll, "钱包充值", "来自order模块", async function (ctx: ServerContext, oid: string) {
+server.callAsync("recharge", allowAll, "钱包充值", "被order模块所调用", async function (ctx: ServerContext, oid: string) {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   try {
     await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
@@ -206,25 +206,24 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
   }
 });
 
-
-/*
-server.call("debit", adminOnly, "扣款", "用户产生互助事件或者互助分摊扣款", (ctx: ServerContext, rep: ((result: any) => void), amount: number, maid: string) => {
-  log.info(`debit, amount: ${amount}, maid: ${maid}`);
-  if (!verify([uuidVerifier("maid", maid), numberVerifier("amount", amount)], (errors: string[]) => {
-    rep({
-      code: 400,
-      msg: errors.join("\n")
-    });
-  })) {
-    return;
+server.callAsync("deduct", adminOnly, "扣款", "用户产生互助事件或者互助分摊扣款", async (ctx: ServerContext, aid: string, amount: number, type: number, maid?: string, sn?: string) => {
+  log.info(`deduct, aid: ${aid}, amount: ${amount}, type: ${type}, maid: ${maid}, sn: ${sn}`);
+  try {
+    await verify([
+      uuidVerifier("aid", aid),
+      numberVerifier("amount", amount),
+      numberVerifier("type", type),
+      maid ? stringVerifier("maid", maid) : undefined,
+      sn ? stringVerifier("sn", sn) : undefined,
+    ].filter(x => x));
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: error.message };
   }
-  const cbflag = uuid.v1();
-  const domain = ctx.domain;
-  const pkt: CmdPacket = { cmd: "debit", args: [domain, ctx.uid, amount, maid, cbflag] };
+  const pkt: CmdPacket = { cmd: "deduct", args: [aid, amount, type, maid, sn] };
   ctx.publish(pkt);
-  wait_for_response(ctx.cache, cbflag, rep);
+  return await waitingAsync(ctx);
 });
-*/
 
 server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所有已发生的事件", async (ctx: ServerContext, aid: string) => {
   log.info(`replay, aid: ${aid}`);
