@@ -31,6 +31,7 @@ export const processor = new Processor();
 processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   const ordrep = await rpcAsync(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
+  log.info("getPlanOrder response: " + JSON.stringify(ordrep));
   if (ordrep["code"] === 200) {
     const order = ordrep["data"];
     if (order.uid !== ctx.uid) {
@@ -137,6 +138,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         }
       }
       const result0 = await waitingAsync(ctx, tsn);
+      log.info("transaction-events result: " + JSON.stringify(result0));
       if (result0["code"] === 200) {
         return result0;
       } else {
@@ -149,6 +151,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         const aevent: AccountEvent = {
           id:          null,
           type:        0,
+          uid:         ctx.uid,
           opid:        ctx.uid,
           aid:         aid,
           occurred_at: new Date(),

@@ -94,20 +94,12 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
         const pkt = await msgpack_encode_async(transaction);
         multi.zadd(key, row.occurred_at.getTime(), pkt);
       }
-      const cresult = await multi.execAsync();
-      if (cresult.code === 200) {
-        return { code: 200, data: "Okay" };
-      } else {
-        return cresult;
-      }
+      await multi.execAsync();
+      return { code: 200, data: "Okay" };
     } else {
       const pkt = await msgpack_encode_async(event);
-      const cresult = await cache.zaddAsync(`transactions:${uid}`, event.occurred_at.getTime(), pkt);
-      if (cresult.code === 200) {
-        return { code: 200, data: "Okay" };
-      } else {
-        return cresult;
-      }
+      await cache.zaddAsync(`transactions:${uid}`, event.occurred_at.getTime(), pkt);
+      return { code: 200, data: "Okay" };
     }
   } else {
     // it exists
@@ -124,7 +116,7 @@ listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
   let aid = event.aid;
   let uid = event.uid;
 
-  log.info(`onEvent: type: ${event.type}, aid: ${aid}, uid: ${uid}`);
+  log.info(`onEvent: id: ${event.id}, type: ${event.type}, aid: ${aid}, uid: ${uid}, undo: ${event.undo}`);
 
   if (!aid && !uid) {
     return { code: 404, msg: "需要 uid 或 aid" };

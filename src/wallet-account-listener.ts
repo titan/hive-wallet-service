@@ -216,6 +216,7 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
 
 async function handle_event(db: PGClient, cache: RedisClient, event: AccountEvent) {
 
+  const eid         = event.id;
   const oid         = event.oid;
   const uid         = event.uid;
   const aid         = event.aid;
@@ -240,7 +241,7 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
       // special event to replay
       await db.query("UPDATE accounts SET evtid = NULL, balance0 = 0, balance1 = 0, frozen_balance0 = 0, frozen_balance1 = 0, cashable_balance = 0, bonus = 0 WHERE id = $1;", [aid]);
     } else {
-      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [uuid.v4(), type, opid, uid, aid, occurred_at, oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })]);
+      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [eid, type, opid, uid, aid, occurred_at, oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })]);
     }
     const result = await play_events(db, cache, aid);
     if (result["code"] === 200) {
@@ -256,7 +257,13 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
 }
 
 async function handle_undo_event(db: PGClient, cache: RedisClient, event: AccountEvent) {
-  await db.query("DELETE FROM account_events WHERE id = $1", [event.id]);
+  const result = await db.query("SELECT 1 FROM accounts WHERE evtid = $1;", [event.id]);
+  if (result.rowCount === 1) {
+    const eresult = await db.query("SELECT id FROM account_events WHERE occurred_at < $1 AND aid = $2 ORDER BY occurred_at DESC;", [event.occurred_at, event.aid]);
+    const evtid = eresult.rowCount > 0 ? eresult.rows[0].id : undefined;
+    await db.query("UPDATE accounts SET evtid = $1 WHERE id = $2;", [evtid, event.aid]);
+  }
+  await db.query("DELETE FROM account_events WHERE id = $1;", [event.id]);
   await db.query("COMMIT;");
   return { code: 200, data: `AccountEvent ${event.id} deleted` };
 }
@@ -277,7 +284,7 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const occurred_at = event.occurred_at;
   let uid           = event.uid;
 
-  log.info(`onEvent: type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at}, uid: ${uid}`);
+  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at.toISOString()}, uid: ${uid}, undo: ${event.undo}`);
 
   // whether does account exist?
   await db.query("BEGIN;");
