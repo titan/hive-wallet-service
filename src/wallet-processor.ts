@@ -71,6 +71,19 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         aid:         aid,
         undo:        false,
       } :            null,
+      order.payment_method === 2 ? {
+        id:          uuid.v4(),
+        type:        9,
+        uid:         ctx.uid,
+        title:       "扣除微信支付手续费",
+        license:     order.vehicle.license,
+        amount:      Math.ceil(order.payment * order.commission_ratio * 100) / 100,
+        occurred_at: new Date(now.getTime() + 2),
+        vid:         order.vehicle.id,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+      } :            null,
       {
         id:          uuid.v4(),
         type:        3,
@@ -98,8 +111,16 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         undo:        false,
       }
     ].filter(x => x);
-
-    const smoney = Math.round(order.summary * 20) / 100;
+    let smoney = null;
+    let bmoney = null;
+    if (order.payment_method === 2) {
+      const total = Math.round(order.summary * 99) / 100;
+      smoney = Math.round(total * 20) / 100;
+      bmoney = total - smoney;
+    } else {
+      smoney = Math.round(order.summary * 20) / 100;
+      bmoney = order.summary - smoney;
+    }
     const aevents: AccountEvent[] = [
       {
         id:          uuid.v4(),
@@ -166,6 +187,151 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     }
   } else {
     return { code: 404, msg: "订单不存在" };
+  }
+});
+
+processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: number, amount: number, maid: string) => {
+  log.info(`freeze, aid: ${aid}, type: ${type}, amount: ${amount}, maid: ${maid}`);
+  const uresult = await ctx.db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1", [aid]);
+  if (uresult.rowCount > 0) {
+    const buf = await ctx.cache.hgetAsync("wallet-entities", uresult.rows[0].uid);
+    const pkt = await msgpack_decode_async(buf);
+    const wallet = pkt as Wallet;
+    const aevents: AccountEvent[] = [];
+    for (const account of wallet.accounts) {
+      log.info("freeze: account: " + JSON.stringify(account, null, 2));
+      if (account.id === aid) {
+        const now = new Date();
+        switch (type) {
+          case 1: {
+            const unfrozen = account.balance0 - account.frozen_balance0;
+            const evt: AccountEvent = {
+              id:          uuid.v4(),
+              type:        9,
+              opid:        ctx.uid,
+              aid:         aid,
+              occurred_at: now,
+              amount:      (amount > unfrozen ? unfrozen : amount),
+              maid:        maid,
+              undo:        false,
+            }
+            aevents.push(evt);
+            break;
+          }
+          case 2: {
+            const unfrozen = account.balance1 - account.frozen_balance1;
+            const evt: AccountEvent = {
+              id:          uuid.v4(),
+              type:        11,
+              opid:        ctx.uid,
+              aid:         aid,
+              occurred_at: now,
+              amount:      (amount > unfrozen ? unfrozen : amount),
+              maid:        maid,
+              undo:        false,
+            }
+            aevents.push(evt);
+            break;
+          }
+          default: {
+            const unfrozen0 = account.balance0 - account.frozen_balance0;
+            const unfrozen1 = account.balance1 - account.frozen_balance1;
+            let rest = amount;
+            if (rest < unfrozen0) {
+              const evt: AccountEvent = {
+                id:          uuid.v4(),
+                type:        9,
+                opid:        ctx.uid,
+                aid:         aid,
+                occurred_at: now,
+                amount:      rest,
+                maid:        maid,
+                undo:        false,
+              }
+              aevents.push(evt);
+            } else {
+              const evt: AccountEvent = {
+                id:          uuid.v4(),
+                type:        9,
+                opid:        ctx.uid,
+                aid:         aid,
+                occurred_at: now,
+                amount:      unfrozen0,
+                maid:        maid,
+                undo:        false,
+              }
+              aevents.push(evt);
+              rest -= unfrozen0;
+              if (rest > 0) {
+                const evt: AccountEvent = {
+                  id:          uuid.v4(),
+                  type:        11,
+                  opid:        ctx.uid,
+                  aid:         aid,
+                  occurred_at: new Date(now.getTime() + 100),
+                  amount:      (rest > unfrozen1 ? unfrozen1 : rest),
+                  maid:        maid,
+                  undo:        false,
+                }
+                aevents.push(evt);
+              }
+            }
+            break;
+          }
+        }
+        break;
+      }
+    }
+    if (aevents.length === 0) {
+      return { code: 404, msg: "扣款钱包帐号不存在" };
+    }
+    let total = 0;
+    for (const evt of aevents) {
+      total += evt.amount;
+    }
+    const tevent: TransactionEvent = {
+      id:          uuid.v4(),
+      type:        6,
+      aid:         aid,
+      title:       "互助金预提",
+      amount:      total,
+      occurred_at: aevents[0].occurred_at,
+      maid:        maid,
+      undo:        false,
+    };
+    let found_account_error = false;
+    let aresult = null;
+    for (const evt of aevents) {
+      const asn = crypto.randomBytes(64).toString("base64");
+      ctx.push("account-events", evt, asn);
+      aresult = await waitingAsync(ctx, asn);
+      if (aresult.code !== 200) {
+        found_account_error = true;
+        break;
+      }
+    }
+    if (!found_account_error) {
+        const tsn = crypto.randomBytes(64).toString("base64");
+        ctx.push("transaction-events", tevent, tsn);
+        const tresult = await waitingAsync(ctx, tsn);
+        if (tresult.code === 200) {
+          return { code: 200, data: "冻结成功" }
+        } else {
+          const undoevents = aevents.map(x => { x.undo = true; return x; }).reverse();
+          for (const evt of undoevents) {
+            ctx.push("account-events", evt);
+          }
+          return { code: 500, msg: "Push transaction event error: " + tresult.msg };
+        }
+    } else {
+      const undoevents = aevents.map(x => { x.undo = true; return x; }).reverse();
+      for (const evt of undoevents) {
+        ctx.push("account-events", evt);
+      }
+      return { code: 500, msg: "Push account event error: " + aresult.msg };
+    }
+  } else {
+    return { code: 404, msg: "扣款钱包帐号不存在" };
   }
 });
 

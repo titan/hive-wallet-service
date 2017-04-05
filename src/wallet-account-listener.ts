@@ -98,7 +98,7 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
     }
 
     if (!account.vehicle) {
-      const vrep = await rpcAsync<Object>("admin", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
+      const vrep = await rpcAsync<Object>("mobile", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
       if (vrep["code"] === 200) {
         account.vehicle = vrep["data"];
       }

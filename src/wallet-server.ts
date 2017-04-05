@@ -94,60 +94,26 @@ server.callAsync("recharge", allowAll, "钱包充值", "被order模块所调用"
   return await waitingAsync(ctx);
 });
 
-server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结,账户余额不会改变", async (ctx: ServerContext, amount: number, maid: string, aid: string, type: number) => {
-  log.info(`freeze, amount: ${amount}, maid: ${maid}, aid: ${aid}, type: ${type}`);
+server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结,账户余额不会改变", async (ctx: ServerContext, aid: string, type: number, amount: number, maid: string) => {
+  log.info(`freeze, aid: ${aid}, type: ${type}, amount: ${amount}, maid: ${maid}`);
   try {
     await verify([
-      uuidVerifier("maid", maid),
+      stringVerifier("maid", maid),
       uuidVerifier("aid", aid),
       numberVerifier("amount", amount),
-      numberVerifier("type", type)
+      numberVerifier("type", type),
     ]);
   } catch (error) {
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
-  if (type !== 0 && type !== 1) {
-    return { code: 400, msg: "参数无法通过验证: type 必须为 0 或 1" };
+  if (type !== 1 && type !== 2 && type !== 3) {
+    ctx.report(3, new Error("参数无法通过验证: type 必须为 1, 2 或 3"));
+    return { code: 400, msg: "参数无法通过验证: type 必须为 1, 2 或 3" };
   }
-
-  const now = new Date();
-  const tevent: TransactionEvent = {
-    id:          uuid.v4(),
-    type:        6,
-    aid:         aid,
-    title:       "互助金冻结",
-    amount:      amount,
-    occurred_at: now,
-    maid:        maid,
-    undo:        false,
-  };
-  ctx.push("transaction-events", tevent);
-  const result = await waitingAsync(ctx);
-  if (result["code"] === 200) {
-    const aevent: AccountEvent = {
-      id:          uuid.v4(),
-      type:        0 ? 9 : 11,
-      opid:        ctx.uid,
-      aid:         aid,
-      occurred_at: now,
-      amount:      amount,
-      maid:        maid,
-      undo:        false,
-    };
-    ctx.push("account-events", aevent);
-    const result1 = await waitingAsync(ctx);
-    if (result1["code"] === 200) {
-      return result1;
-    } else {
-      tevent.undo = true;
-      ctx.push("transaction-events", tevent);
-      await waitingAsync(ctx);
-      return result;
-    }
-  } else {
-    return result;
-  }
+  const pkt: CmdPacket = { cmd: "freeze", args: [aid, type, amount, maid] };
+  ctx.publish(pkt);
+  return await waitingAsync(ctx);
 });
 
 server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解冻,账户余额不会改变", async (ctx: ServerContext, amount: number, maid: string, aid: string, type: number) => {
@@ -163,8 +129,8 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
-  if (type !== 0 && type !== 1) {
-    return { code: 400, msg: "参数无法通过验证: type 必须为 0 或 1" };
+  if (type !== 1 && type !== 2 && type !== 3) {
+    return { code: 400, msg: "参数无法通过验证: type 必须为 1, 2 或 3" };
   }
 
   const now = new Date();
