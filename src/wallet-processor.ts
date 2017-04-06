@@ -44,6 +44,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     if (dbresult.rowCount > 0) {
       aid = dbresult.rows[0].id;
     }
+    const wechat_fee = Math.ceil(order.payment * order.commission_ratio * 100) / 100;
     const tevents: TransactionEvent[] = [
       {
         id:          uuid.v4(),
@@ -64,7 +65,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         uid:         ctx.uid,
         title:       "微信支付手续费",
         license:     order.vehicle.license,
-        amount:      Math.ceil(order.payment * order.commission_ratio * 100) / 100,
+        amount:      wechat_fee,
         occurred_at: new Date(now.getTime() + 2),
         vid:         order.vehicle.id,
         oid:         order.id,
@@ -114,7 +115,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     let smoney = null;
     let bmoney = null;
     if (order.payment_method === 2) {
-      const total = Math.round(order.summary * 99) / 100;
+      const total = order.summary - wechat_fee;
       smoney = Math.round(total * 20) / 100;
       bmoney = total - smoney;
     } else {
@@ -140,7 +141,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 5),
-        amount:      order.summary - smoney,
+        amount:      bmoney,
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
