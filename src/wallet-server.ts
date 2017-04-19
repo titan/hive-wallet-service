@@ -191,6 +191,21 @@ server.callAsync("deduct", adminOnly, "扣款", "用户产生互助事件或者�
   return await waitingAsync(ctx);
 });
 
+server.callAsync("exportAccounts", adminOnly, "导出帐号信息", "导出所有帐号信息到指定的 csv 文件", async (ctx: ServerContext, filename: string) => {
+  log.info(`exportAccounts, filename: ${filename}`);
+  try {
+    await verify([
+      stringVerifier("filename", filename),
+    ]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: error.message };
+  }
+  const pkt: CmdPacket = { cmd: "exportAccounts", args: [ filename ] };
+  ctx.publish(pkt);
+  return await waitingAsync(ctx);
+});
+
 server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所有已发生的事件", async (ctx: ServerContext, aid: string) => {
   log.info(`replay, aid: ${aid}`);
   try {
