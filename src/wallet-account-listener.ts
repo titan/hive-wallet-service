@@ -5,7 +5,8 @@ import * as bluebird from "bluebird";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as Disq from "hive-disque";
-import { AccountEvent, Account, Wallet } from "./wallet-define";
+import { Account, Wallet } from "wallet-library";
+import { AccountEvent } from "./wallet-define";
 
 export const listener = new BusinessEventListener("account-events");
 

@@ -4,7 +4,8 @@ import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import { verify, uuidVerifier, stringVerifier, numberVerifier } from "hive-verify";
 import * as bluebird from "bluebird";
-import { Account, AccountEvent, TransactionEvent, Wallet } from "./wallet-define";
+import { Account, Wallet } from "wallet-library";
+import { AccountEvent, TransactionEvent } from "./wallet-define";
 
 let log = bunyan.createLogger({
   name: "wallet-server",

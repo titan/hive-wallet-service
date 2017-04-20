@@ -5,7 +5,8 @@ import * as crypto from "crypto";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as bluebird from "bluebird";
-import { Account, AccountEvent, Transaction, TransactionEvent, Wallet } from "./wallet-define";
+import { Account, Transaction, Wallet } from "wallet-library";
+import { AccountEvent, TransactionEvent } from "./wallet-define";
 import * as fs from "fs";
 
 const log = bunyan.createLogger({

@@ -1,27 +1,14 @@
 {
   "dependencies": {
+    "hive-service": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-service.git",
+    "hive-verify": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-verify.git"
+  },
+  "devDependencies": {
     "@types/bluebird": "^3.0.36",
     "@types/msgpack-lite": "^0.1.1",
     "@types/pg-pool": "0.0.2",
     "@types/redis": "^0.12.33",
     "@types/uuid-1345": "^0.99.20",
-    "hive-service": "git+http://git.fengchaohuzhu.com:10080/Titan/hive-service.git",
-    "hive-verify": "git+http://git.fengchaohuzhu.com:10080/feiluo/hive-verify.git"
-  },
-  "devDependencies": {
-    "@types/jest": "^19.2.1",
-    "jest": "^19.0.2",
-    "ts-jest": "^19.0.0"
-  },
-  "jest": {
-    "transform": {
-      ".(ts|tsx)": "<rootDir>/node_modules/ts-jest/preprocessor.js"
-    },
-    "testRegex": "(/__tests__/.*|\\.(test|spec))\\.(ts|tsx|js)$",
-    "moduleFileExtensions": [
-      "ts",
-      "tsx",
-      "js"
-    ]
+    "wallet-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/wallet-library.git"
   }
 }
