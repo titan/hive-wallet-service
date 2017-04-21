@@ -5,6 +5,7 @@ import * as bluebird from "bluebird";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as Disq from "hive-disque";
+import { Vehicle } from "vehicle-library";
 import { Account, Wallet } from "wallet-library";
 import { AccountEvent } from "./wallet-define";
 
@@ -99,9 +100,9 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
     }
 
     if (!account.vehicle) {
-      const vrep = await rpcAsync<Object>("mobile", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
-      if (vrep["code"] === 200) {
-        account.vehicle = vrep["data"];
+      const vrep = await rpcAsync<Vehicle>("mobile", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
+      if (vrep.code === 200) {
+        account.vehicle = vrep.data;
       }
     }
 

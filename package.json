@@ -9,6 +9,7 @@
     "@types/pg-pool": "0.0.2",
     "@types/redis": "^0.12.33",
     "@types/uuid-1345": "^0.99.20",
+    "order-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/order-library.git",
     "wallet-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/wallet-library.git"
   }
 }
