@@ -489,7 +489,7 @@ processor.callAsync("exportAccounts", async (ctx: ProcessorContext, filename: st
       }
     }
   }
-  const data = [["PRNID", "保单号", "启保日期", "终保日期", "保额", "个人互助金", "公共互助金"].join(",")].concat(accounts.filter(x => oids[x.id] && orders[oids[x.id]] && orders[oids[x.id]]["state"] === 4 && users[orders[oids[x.id]].uid]).map(x => {
+  const data = [["PRNID", "保单编号", "起保日期", "终保日期", "保险金额", "个人互助金", "公共互助金"].join(",")].concat(accounts.filter(x => oids[x.id] && orders[oids[x.id]] && orders[oids[x.id]]["state"] === 4 && users[orders[oids[x.id]].uid]).map(x => {
     const order = orders[oids[x.id]];
     const user  = users[orders[oids[x.id]].uid];
     const account = x;
