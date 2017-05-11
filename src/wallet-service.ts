@@ -3,6 +3,7 @@ import { server } from "./wallet-server";
 import { processor } from "./wallet-processor";
 import { listener as account_listener } from "./wallet-account-listener";
 import { listener as transaction_listener } from "./wallet-transaction-listener";
+import * as trigger from "./wallet-trigger";
 import * as bunyan from "bunyan";
 
 const log = bunyan.createLogger({
@@ -49,3 +50,4 @@ svc.registerEventListener(account_listener);
 svc.registerEventListener(transaction_listener);
 
 svc.run();
+trigger.run();

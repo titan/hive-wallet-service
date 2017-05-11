@@ -92,7 +92,14 @@ server.callAsync("recharge", allowAll, "钱包充值", "被order模块所调用"
   }
   const pkt: CmdPacket = { cmd: "recharge", args: [oid] };
   ctx.publish(pkt);
-  return await waitingAsync(ctx);
+  const result = await waitingAsync(ctx);
+  if (result.code !== 200) {
+    const e: Error = new Error();
+    e.name = result.code.toString();
+    e.message = result.msg;
+    this.report(0, e);
+  }
+  return result;
 });
 
 server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金冻结,账户余额不会改变", async (ctx: ServerContext, aid: string, type: number, amount: number, maid: string) => {
