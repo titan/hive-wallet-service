@@ -128,7 +128,7 @@ listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
     if (!uid || !event.vid) {
       return { code: 404, msg: "需要提供 uid 和 vid" };
     }
-    const result = await db.query("SELECT id FROM accounts WHERE uid = $1 AND vid = $2", [uid, event.vid]);
+    const result = await db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND vid = $2", [uid, event.vid]);
     if (result.rowCount === 1) {
       aid = result.rows[0].id;
       event.aid = aid;
@@ -137,7 +137,7 @@ listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
 
   // get uid from database if it does not exist
   if (!uid) {
-    const result = await db.query("SELECT DISTINCT uid FROM accounts WHERE id = $1", [aid]);
+    const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1", [aid]);
     if (result.rowCount === 1) {
       uid = result.rows[0].uid;
       event.uid = uid;
