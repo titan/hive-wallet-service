@@ -4,7 +4,7 @@ import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import { verify, uuidVerifier, stringVerifier, numberVerifier } from "hive-verify";
 import * as bluebird from "bluebird";
-import { Account, Wallet } from "wallet-library";
+import { Account, Wallet, Transaction } from "wallet-library";
 import { AccountEvent, TransactionEvent } from "./wallet-define";
 
 let log = bunyan.createLogger({
@@ -50,8 +50,8 @@ server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所�
 
   const buf = await ctx.cache.hgetAsync(slim ? "wallet-slim-entities" : "wallet-entities", uid);
   if (buf) {
-    const wallet = await msgpack_decode_async(buf);
-    return { code: 200, data: wallet };
+    const wallet = await msgpack_decode_async(buf) as Wallet;
+    return { code: 200, data: convert_wallet_unit(wallet) };
   } else {
     return { code: 404, msg: "钱包不存在" };
   }
@@ -76,8 +76,8 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
   const transactions = [];
   log.info("got transactions: " + pkts.length);
   for (const pkt of pkts) {
-    const transaction = await msgpack_decode_async(pkt);
-    transactions.push(transaction);
+    const transaction = await msgpack_decode_async(pkt) as Transaction;
+    transactions.push(convert_transaction_unit(transaction));
   }
   return { code: 200, data: transactions };
 });
@@ -119,7 +119,7 @@ server.callAsync("freeze", adminOnly, "冻结资金", "用户账户产生资金�
     ctx.report(3, new Error("参数无法通过验证: type 必须为 1, 2 或 3"));
     return { code: 400, msg: "参数无法通过验证: type 必须为 1, 2 或 3" };
   }
-  const pkt: CmdPacket = { cmd: "freeze", args: [aid, type, amount, maid] };
+  const pkt: CmdPacket = { cmd: "freeze", args: [aid, type, Math.round(amount * 100), maid] };
   ctx.publish(pkt);
   return await waitingAsync(ctx);
 });
@@ -141,13 +141,14 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
     return { code: 400, msg: "参数无法通过验证: type 必须为 1, 2 或 3" };
   }
 
+  const converted_amount = Math.round(amount * 100);
   const now = new Date();
   const tevent: TransactionEvent = {
     id:          uuid.v4(),
     type:        7,
     aid:         aid,
     title:       "互助金解冻",
-    amount:      amount,
+    amount:      converted_amount,
     occurred_at: now,
     maid:        maid,
     undo:        false,
@@ -161,7 +162,7 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
       opid:        ctx.uid,
       aid:         aid,
       occurred_at: now,
-      amount:      amount,
+      amount:      converted_amount,
       maid:        maid,
       undo:        false,
     };
@@ -194,7 +195,7 @@ server.callAsync("deduct", adminOnly, "扣款", "用户产生互助事件或者�
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
-  const pkt: CmdPacket = { cmd: "deduct", args: [aid, amount, type, maid, sn] };
+  const pkt: CmdPacket = { cmd: "deduct", args: [aid, Math.round(amount * 100), type, maid, sn] };
   ctx.publish(pkt);
   return await waitingAsync(ctx);
 });
@@ -254,5 +255,31 @@ server.callAsync("refresh", adminOnly, "刷新", "刷新数据", async (ctx: Ser
   ctx.publish(pkt);
   return await waitingAsync(ctx);
 });
+
+// for outputing wallet to client
+function convert_wallet_unit(wallet: Wallet): Wallet {
+  wallet.balance  /= 100;
+  wallet.frozen   /= 100;
+  wallet.cashable /= 100;
+  wallet.accounts = wallet.accounts.map(x => convert_account_unit(x));
+  return wallet;
+}
+
+function convert_account_unit(account: Account): Account {
+  account.balance0         /= 100;
+  account.balance1         /= 100;
+  account.paid             /= 100;
+  account.bonus            /= 100;
+  account.cashable_balance /= 100;
+  account.frozen_balance0  /= 100;
+  account.frozen_balance1  /= 100;
+  return account;
+}
+
+// for outputing transaction to client
+function convert_transaction_unit(transaction: Transaction): Transaction {
+  transaction.amount /= 100;
+  return transaction;
+}
 
 log.info("Start wallet server");

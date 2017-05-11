@@ -60,7 +60,7 @@ function row2event(row): AccountEvent {
     uid:         row.uid,
     aid:         row.aid,
     occurred_at: row.occurred_at,
-    amount:      0.0,
+    amount:      0,
     undo:        false,
   };
 
@@ -102,15 +102,15 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
       }
     } else {
       wallet = {
-        frozen:   0.0,
-        cashable: 0.0,
-        balance:  0.0,
+        frozen:   0,
+        cashable: 0,
+        balance:  0,
         accounts: [ account ],
       };
     }
-    let frozen   = 0.0;
-    let cashable = 0.0;
-    let balance  = 0.0;
+    let frozen   = 0;
+    let cashable = 0;
+    let balance  = 0;
     for (const a of wallet.accounts) {
       frozen += a.frozen_balance0 + a.frozen_balance1;
       cashable += a.cashable_balance;

@@ -50,6 +50,7 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
         for (const account of wallet.accounts) {
           if (account.id === aid) {
             license = account.vehicle ? account.vehicle.license_no || null : null;
+            break;
           }
         }
       }

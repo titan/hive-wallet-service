@@ -47,7 +47,10 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     if (dbresult.rowCount > 0) {
       aid = dbresult.rows[0].id;
     }
-    const wechat_fee = Math.ceil(order.payment * order.commission_ratio * 100) / 100;
+    const summary = Math.round(order.summary * 100);
+    const payment = Math.round(order.payment * 100);
+    const fee = (Math.round(summary * 0.2) < 1) ? 1 : Math.round(summary * 0.2);
+    const wechat_fee = Math.ceil(payment * order.commission_ratio);
     const tevents: TransactionEvent[] = [
       {
         id:          uuid.v4(),
@@ -55,7 +58,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         uid:         ctx.uid,
         title:       "加入计划充值",
         license:     order.vehicle.license_no,
-        amount:      order.payment,
+        amount:      payment,
         occurred_at: new Date(now.getTime() + 1),
         vid:         order.vehicle.id,
         oid:         order.id,
@@ -75,13 +78,13 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         aid:         aid,
         undo:        false,
       } :            null,
-      (Math.abs(order.summary - order.payment) > 0.01) ? {
+      (summary === payment) ? {
         id:          uuid.v4(),
         type:        2,
         uid:         ctx.uid,
         title:       "优惠补贴",
         license:     order.vehicle.license_no,
-        amount:      order.summary - order.payment,
+        amount:      summary - payment,
         occurred_at: new Date(now.getTime() + 2),
         vid:         order.vehicle.id,
         oid:         order.id,
@@ -94,7 +97,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         uid:         ctx.uid,
         title:       "缴纳管理费",
         license:     order.vehicle.license_no,
-        amount:      -(Math.round(order.summary * 20) / 100),
+        amount:      fee,
         occurred_at: new Date(now.getTime() + 3),
         vid:         order.vehicle.id,
         oid:         order.id,
@@ -107,7 +110,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         uid:         ctx.uid,
         title:       "试运行期间管理费免缴，中途退出计划不可提现",
         license:     order.vehicle.license_no,
-        amount:      (Math.round(order.summary * 20) / 100),
+        amount:      fee,
         occurred_at: new Date(now.getTime() + 4),
         vid:         order.vehicle.id,
         oid:         order.id,
@@ -115,15 +118,22 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         undo:        false,
       }
     ].filter(x => x);
-    let smoney = null;
-    let bmoney = null;
+    let smoney = 0;
+    let bmoney = 0;
+    let bonus = 0;
     if (order.payment_method === 2) {
-      const total = order.summary - wechat_fee;
-      smoney = Math.round(total * 20) / 100;
+      const total = summary - wechat_fee;
+      smoney = Math.round(total * 0.2);
       bmoney = total - smoney;
+      if (total > payment) {
+        bonus = total - payment;
+      }
     } else {
-      smoney = Math.round(order.summary * 20) / 100;
-      bmoney = order.summary - smoney;
+      smoney = Math.round(summary * 0.2);
+      bmoney = summary - smoney;
+      if (summary > payment) {
+        bonus = summary - payment;
+      }
     }
     const aevents: AccountEvent[] = [
       {
@@ -156,19 +166,19 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 15),
-        amount:      order.payment_method === 2 ? order.payment - wechat_fee : order.payment,
+        amount:      order.payment_method === 2 ? payment - wechat_fee : payment,
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
         undo:        false,
       },
-      (Math.abs(order.summary - order.payment) > 0.01) ? {
+      (bonus > 0) ? {
         id:          uuid.v4(),
         type:        7,
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 20),
-        amount:      order.summary - order.payment,
+        amount:      bonus,
         vid:         order.vehicle.id,
         oid:         order.id,
         aid:         aid,
@@ -462,7 +472,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
         });
         to_deduct -= account.bonus;
       }
-      if (to_deduct > 0.01) {
+      if (to_deduct > 1) {
         aevents.push({
           id:          uuid.v4(),
           type:        14,
@@ -564,7 +574,7 @@ processor.callAsync("exportAccounts", async (ctx: ProcessorContext, filename: st
     const order = orders[oids[x.id]];
     const user  = users[orders[oids[x.id]].uid];
     const account = x;
-    return [user.pnrid, order.no, order.start_at.toISOString(), order.stop_at.toISOString(), order.summary, x.balance0, x.balance1].join(",");
+    return [user.pnrid, order.no, order.start_at.toISOString(), order.stop_at.toISOString(), order.summary, x.balance0 / 100, x.balance1 / 100].join(",");
   }));
   return await new Promise((resolve, reject) => {
     fs.writeFile(filename, "\ufeff" + data.join("\r\n"), function (err) {
