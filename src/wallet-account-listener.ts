@@ -77,7 +77,7 @@ function row2event(row): AccountEvent {
 
 async function sync_account(db: PGClient, cache: RedisClient, account: Account) {
   if (account) {
-    if (!account.vehicle) {
+    if (!account.vehicle && account.vid) {
       const vrep = await rpcAsync<Vehicle>("mobile", process.env["VEHICLE"], account.uid, "getVehicle", account.vid);
       if (vrep.code === 200) {
         account.vehicle = vrep.data;
@@ -94,6 +94,8 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
         for (const a of wallet.accounts) {
           if (a.vid !== account.vid) {
             accounts.push(a);
+          } else {
+            account.vehicle = a.vehicle;
           }
         }
         wallet.accounts = accounts;
@@ -122,11 +124,13 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
     const wpkt = await msgpack_encode_async(wallet);
     await cache.hsetAsync("wallet-entities", account.uid, wpkt);
     for (const a of wallet.accounts) {
-      const vehicle = {
-        id: a.vehicle.id,
-        license_no: a.vehicle.license_no,
-      };
-      a.vehicle = vehicle;
+      if (a.vehicle) {
+        const vehicle = {
+          id: a.vehicle.id,
+          license_no: a.vehicle.license_no,
+        };
+        a.vehicle = vehicle;
+      }
     }
     const wpkt2 = await msgpack_encode_async(wallet);
     await cache.hsetAsync("wallet-slim-entities", account.uid, wpkt2);
@@ -189,6 +193,7 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
       created_at: new Date(),
       updated_at: new Date(),
     };
+    since = new Date(0);
   }
   const eresult = await db.query("SELECT id, type, opid, uid, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false;", [aid, since]);
   if (eresult.rowCount > 0) {
@@ -211,6 +216,7 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
   const oid         = event.oid;
   const uid         = event.uid;
   const aid         = event.aid;
+  const vid         = event.vid;
   const maid        = event.maid;
   const opid        = event.opid;
   const type        = event.type;
@@ -229,7 +235,8 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
   if (eresult.rowCount === 0) {
     // event not found
     if (type !== 0) {
-      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [eid, type, opid, uid, aid, occurred_at, oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })]);
+      const data = vid ? (oid ? JSON.stringify({ oid , amount, vid }) : JSON.stringify({ maid, amount, vid })) : (oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })) ;
+      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [eid, type, opid, uid, aid, occurred_at, data]);
     }
     const result = await play_events(db, cache, aid);
     return result;
@@ -259,7 +266,7 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const occurred_at = event.occurred_at;
   let uid           = event.uid;
 
-  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at.toISOString()}, uid: ${uid}, undo: ${event.undo}`);
+  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}`);
 
   if (!uid) {
     const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1;", [aid]);

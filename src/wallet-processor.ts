@@ -43,7 +43,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     const now = new Date();
     const sn = crypto.randomBytes(64).toString("base64");
     let aid = uuid.v4();
-    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND vid = $2;", [ctx.uid, order.vehicle.id]);
+    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'vid' = $2;", [ctx.uid, order.vehicle.id]);
     if (dbresult.rowCount > 0) {
       aid = dbresult.rows[0].id;
     }
@@ -120,20 +120,14 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     ].filter(x => x);
     let smoney = 0;
     let bmoney = 0;
-    let bonus = 0;
+    let bonus = (summary > payment) ? (summary - payment) : 0 ;
     if (order.payment_method === 2) {
       const total = summary - wechat_fee;
       smoney = Math.round(total * 0.2);
       bmoney = total - smoney;
-      if (total > payment) {
-        bonus = total - payment;
-      }
     } else {
       smoney = Math.round(summary * 0.2);
       bmoney = summary - smoney;
-      if (summary > payment) {
-        bonus = summary - payment;
-      }
     }
     const aevents: AccountEvent[] = [
       {
@@ -644,7 +638,7 @@ processor.callAsync("replayAll", async (ctx: ProcessorContext) => {
   const result = await db.query("SELECT DISTINCT aid FROM account_events;");
   if (result.rowCount > 0) {
     for (const row of result.rows) {
-      const aid = row.id;
+      const aid = row.aid;
       const event: AccountEvent = {
         id:          null,
         type:        0,

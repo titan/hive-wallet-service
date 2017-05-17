@@ -97,7 +97,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "被order模块所调用"
     const e: Error = new Error();
     e.name = result.code.toString();
     e.message = result.msg;
-    this.report(0, e);
+    ctx.report(0, e);
   }
   return result;
 });
@@ -240,6 +240,9 @@ server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所�
 
 server.callAsync("replayAll", adminOnly, "重播事件", "重新执行所有帐号下所有已发生的事件", async (ctx: ServerContext) => {
   log.info(`replayAll`);
+  await ctx.cache.delAsync("account-entities");
+  await ctx.cache.delAsync("wallet-entities");
+  await ctx.cache.delAsync("wallet-slim-entities");
   const pkt: CmdPacket = { cmd: "replayAll", args: [] };
   ctx.publish(pkt);
   return await waitingAsync(ctx);
