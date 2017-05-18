@@ -78,7 +78,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         aid:         aid,
         undo:        false,
       } :            null,
-      (summary === payment) ? {
+      (summary !== payment) ? {
         id:          uuid.v4(),
         type:        2,
         uid:         ctx.uid,

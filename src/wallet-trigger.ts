@@ -38,7 +38,8 @@ export function run () {
     (async () => {
       switch(event.type) {
         case OrderEventType.PAY: {
-          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["wallet"], event.opid, "recharge", event.oid);
+          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, "recharge", event.oid);
+          log.info(`recharge result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
           break;
         }
         case OrderEventType.CANCEL: {
