@@ -593,6 +593,8 @@ async function sync_transactions(db, cache, domain: string, uid?: string): Promi
       multi.del(key);
     }
     await multi.execAsync();
+  } else {
+    await cache.delAsync(`transactions:${uid}`);
   }
   const result = await db.query("SELECT id, uid, aid, type, license, title, amount, occurred_at, data FROM transactions WHERE deleted = false" + (uid ? " AND uid = $1 ORDER BY occurred_at;" : " ORDER BY occurred_at;"), uid ? [uid] : []);
   const transactions: Transaction[] = [];

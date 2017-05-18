@@ -144,7 +144,7 @@ function play(account: Account, event: AccountEvent) {
   if (!account) {
     return null;
   }
-  const newaccount: Account = { ... account, evtid: event.id, updated_at: event.occurred_at, uid: event.uid || account.uid || undefined, vid: event.vid || account.vid || undefined };
+  const newaccount: Account = { ... account, evtid: event.id, updated_at: event.occurred_at, uid: event.uid || account.uid || undefined, vid: account.vid || event.vid || undefined };
   switch (event.type) {
     case  1: return { ... newaccount, cashable_balance: account.cashable_balance + event.amount };
     case  2: return { ... newaccount, cashable_balance: account.cashable_balance - event.amount };
