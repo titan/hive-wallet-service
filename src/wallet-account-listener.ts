@@ -158,8 +158,8 @@ function play(account: Account, event: AccountEvent) {
     case 10: return { ... newaccount, balance0: account.balance0 + event.amount, frozen_balance0: account.frozen_balance0 - event.amount };
     case 11: return { ... newaccount, balance1: account.balance1 - event.amount, frozen_balance1: account.frozen_balance1 + event.amount };
     case 12: return { ... newaccount, balance1: account.balance1 + event.amount, frozen_balance1: account.frozen_balance1 - event.amount };
-    case 13: return { ... newaccount, bonus: account.paid + event.amount };
-    case 14: return { ... newaccount, bonus: account.paid - event.amount };
+    case 13: return { ... newaccount, paid: account.paid + event.amount };
+    case 14: return { ... newaccount, paid: account.paid - event.amount };
     default: return account;
   }
 }
@@ -195,7 +195,7 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
     };
     since = new Date(0);
   }
-  const eresult = await db.query("SELECT id, type, opid, uid, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false;", [aid, since]);
+  const eresult = await db.query("SELECT id, type, opid, uid, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false order by occurred_at;", [aid, since]);
   if (eresult.rowCount > 0) {
     // 2. get the snapshot of the account
     for (const row of eresult.rows) {
@@ -237,6 +237,8 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
     if (type !== 0) {
       const data = vid ? (oid ? JSON.stringify({ oid , amount, vid }) : JSON.stringify({ maid, amount, vid })) : (oid ? JSON.stringify({ oid , amount }) : JSON.stringify({ maid, amount })) ;
       await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [eid, type, opid, uid, aid, occurred_at, data]);
+    } else {
+      await cache.hdelAsync("account-entities", aid); // replay events
     }
     const result = await play_events(db, cache, aid);
     return result;
