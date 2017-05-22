@@ -92,7 +92,7 @@ async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, accoun
         }
       } else {
         for (const a of wallet.accounts) {
-          const pkt = cache.hgetAsync("account-entities", a.id);
+          const pkt = await cache.hgetAsync("account-entities", a.id);
           if (pkt) {
             accounts.push(a);
           }
@@ -178,33 +178,30 @@ function play(account: Account, event: AccountEvent) {
   }
 }
 
-async function play_events(db: PGClient, cache: RedisClient, aid: string, account?: Account) {
+async function play_events(db: PGClient, cache: RedisClient, aid: string) {
   // 1. detect how many events haven't been played
   let since = null;
-  if (!account) {
-    const apkt = await cache.hgetAsync("account-entities", aid);
-    if (apkt) {
-      account = await msgpack_decode_async(apkt) as Account;
-      since = account.updated_at;
-    } else {
-      account = {
-        id: aid,
-        vid: null,
-        uid: null,
-        balance0: 0,
-        balance1: 0,
-        paid: 0,
-        bonus: 0,
-        frozen_balance0: 0,
-        frozen_balance1: 0,
-        cashable_balance: 0,
-        evtid: null,
-        created_at: null,
-        updated_at: null,
-      };
-      since = new Date(0);
-    }
+  let account = null;
+  const apkt = await cache.hgetAsync("account-entities", aid);
+  if (apkt) {
+    account = await msgpack_decode_async(apkt) as Account;
+    since = account.updated_at;
   } else {
+    account = {
+      id: aid,
+      vid: null,
+      uid: null,
+      balance0: 0,
+      balance1: 0,
+      paid: 0,
+      bonus: 0,
+      frozen_balance0: 0,
+      frozen_balance1: 0,
+      cashable_balance: 0,
+      evtid: null,
+      created_at: null,
+      updated_at: null,
+    };
     since = new Date(0);
   }
   const eresult = await db.query("SELECT id, type, opid, uid, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false order by occurred_at;", [aid, since]);
@@ -222,7 +219,7 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string, accoun
   }
 }
 
-async function handle_event(db: PGClient, cache: RedisClient, event: AccountEvent, account?: Account) {
+async function handle_event(db: PGClient, cache: RedisClient, event: AccountEvent) {
 
   const eid         = event.id;
   const oid         = event.oid;
@@ -249,10 +246,10 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
     if (type !== 0) {
       const data = vid ? (oid ? JSON.stringify({ oid, amount, vid }) : JSON.stringify({ maid, amount, vid })) : (oid ? JSON.stringify({ oid, amount }) : JSON.stringify({ maid, amount })) ;
       await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [eid, type, opid, uid, aid, occurred_at, data]);
-      return await play_events(db, cache, aid, account);
+      return await play_events(db, cache, aid);
     } else {
       await cache.hdelAsync("account-entities", aid); // replay events
-      return await play_events(db, cache, aid, null);
+      return await play_events(db, cache, aid);
     }
   } else {
     return { code: 208, msg: "重复执行事件: " + string_of_event_type(type) };
@@ -270,6 +267,10 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const db: PGClient        = ctx.db;
   const cache: RedisClient  = ctx.cache;
 
+  if (!event) {
+    return { code: 400, msg: "AccountEvent is null" };
+  }
+
   const type        = event.type;
   const oid         = event.oid;
   const aid         = event.aid;
@@ -282,8 +283,6 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
 
   log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}`);
 
-  let account: Account = null;
-
   if (!uid) {
     const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1;", [aid]);
     if (result.rowCount > 0) {
@@ -294,8 +293,9 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
       // find the correct uid and sync wallet
       const apkt = await cache.hgetAsync("account-entities", aid);
       if (apkt && type === 0) {
-        account = await msgpack_decode_async(apkt) as Account;
-        await cache.hdelAsync("account-entities", aid);
+        const account = await msgpack_decode_async(apkt) as Account;
+        const result = await cache.hdelAsync("account-entities", aid);
+        const pkt = await cache.hgetAsync("account-entities", aid);
         return await sync_wallet(db, cache, account.uid);
       } else {
         return { code: 404, msg: "用户不存在，无法执行事件: " + string_of_event_type(type) };
@@ -306,6 +306,6 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   if (event.undo) {
     return handle_undo_event(db, cache, event);
   } else {
-    return handle_event(db, cache, event, account);
+    return handle_event(db, cache, event);
   }
 });

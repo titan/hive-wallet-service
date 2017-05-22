@@ -178,7 +178,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         aid:         aid,
         undo:        false,
       } : null,
-    ];
+    ].filter(x => x);
     for (const event of aevents) {
       ctx.push("account-events", event, sn);
     }
@@ -186,9 +186,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
     if (result["code"] === 200) {
       const tsn = crypto.randomBytes(64).toString("base64");
       for (const event of tevents) {
-        if (event) {
-          ctx.push("transaction-events", event, tsn);
-        }
+        ctx.push("transaction-events", event, tsn);
       }
       const result0 = await waitingAsync(ctx, tsn);
       if (result0["code"] === 200) {
@@ -214,6 +212,24 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         return { code: 500, msg: "更新钱包交易记录失败" };
       }
     } else {
+      log.info("Executing account events error " + JSON.stringify(result));
+      // rollback
+      for (const event of aevents) {
+        event.undo = true;
+        ctx.push("account-events", event);
+      }
+      // replay
+      const aevent: AccountEvent = {
+        id:          null,
+        type:        0,
+        uid:         ctx.uid,
+        opid:        ctx.uid,
+        aid:         aid,
+        occurred_at: new Date(),
+        amount:      0,
+        undo:        false,
+      };
+      ctx.push("account-events", aevent);
       return result;
     }
   } else {
@@ -659,4 +675,3 @@ processor.callAsync("replayAll", async (ctx: ProcessorContext) => {
 });
 
 log.info("Start wallet processor");
-
