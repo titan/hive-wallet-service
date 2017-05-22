@@ -6,7 +6,7 @@ import * as bunyan from "bunyan";
 import * as uuid from "uuid";
 import * as bluebird from "bluebird";
 import { Account, Transaction, Wallet } from "wallet-library";
-import { PlanOrder } from "order-library";
+import { PlanOrder, AdditionalOrder } from "order-library";
 import { Vehicle } from "vehicle-library";
 import { AccountEvent, TransactionEvent } from "./wallet-define";
 import * as fs from "fs";
@@ -32,8 +32,9 @@ const log = bunyan.createLogger({
 });
 
 export const processor = new Processor();
+
 processor.callAsync("rechargePlanOrder", async (ctx: ProcessorContext, oid: string) => {
-  log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
+  log.info(`rechargePlanOrder, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   const ordrep = await rpcAsync<PlanOrder>(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
   if (ordrep.code === 200) {
     const order: PlanOrder = ordrep.data;
@@ -43,7 +44,7 @@ processor.callAsync("rechargePlanOrder", async (ctx: ProcessorContext, oid: stri
     const now = new Date();
     const sn = crypto.randomBytes(64).toString("base64");
     let aid = uuid.v4();
-    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'vid' = $2;", [ctx.uid, order.vehicle.id]);
+    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'vid' = $2 AND project = 1 AND deleted = false;", [ctx.uid, order.vehicle.id]);
     if (dbresult.rowCount > 0) {
       aid = dbresult.rows[0].id;
     }
@@ -239,6 +240,220 @@ processor.callAsync("rechargePlanOrder", async (ctx: ProcessorContext, oid: stri
         amount:      0,
         undo:        false,
         project:     1,
+      };
+      ctx.push("account-events", aevent);
+      return result;
+    }
+  } else {
+    return { code: 404, msg: "订单不存在" };
+  }
+});
+
+processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: string) => {
+  log.info(`rechargeThirdOrder, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
+  const ordrep = await rpcAsync<AdditionalOrder>(ctx.domain, process.env["ORDER"], ctx.uid, "getAdditionalOrder", oid);
+  if (ordrep.code === 200) {
+    const order: AdditionalOrder = ordrep.data;
+    if (order.uid !== ctx.uid) {
+      return { code: 404, msg: "不能对他人钱包充值！" };
+    }
+    const now = new Date();
+    const sn = crypto.randomBytes(64).toString("base64");
+    let aid = uuid.v4();
+    let found = false;
+    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'oid' = $2 AND project = 2 AND deleted = false;", [ctx.uid, order.id]);
+    if (dbresult.rowCount > 0) {
+      aid = dbresult.rows[0].id;
+      found = true
+    }
+    const payment = Math.round(order.payment * 100);
+    const tevents: TransactionEvent[] = [
+      {
+        id:          uuid.v4(),
+        type:        found ? 202 : 201,
+        uid:         ctx.uid,
+        title:       found ? "充值" : "加入",
+        license:     order.license_no,
+        amount:      payment,
+        occurred_at: new Date(now.getTime() + 1),
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     2,
+      },
+    ].filter(x => x);
+    const aevents: AccountEvent[] = [
+      {
+        id:          uuid.v4(),
+        type:        1,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 5),
+        amount:      payment,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     2,
+      },
+    ].filter(x => x);
+    for (const event of aevents) {
+      ctx.push("account-events", event, sn);
+    }
+    const result = await waitingAsync(ctx, sn);
+    if (result["code"] === 200) {
+      const tsn = crypto.randomBytes(64).toString("base64");
+      for (const event of tevents) {
+        ctx.push("transaction-events", event, tsn);
+      }
+      const result0 = await waitingAsync(ctx, tsn);
+      if (result0["code"] === 200) {
+        return result0;
+      } else {
+        // rollback
+        for (const event of aevents) {
+          event.undo = true;
+          ctx.push("account-events", event);
+        }
+        // replay
+        const aevent: AccountEvent = {
+          id:          null,
+          type:        0,
+          uid:         ctx.uid,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: new Date(),
+          amount:      0,
+          undo:        false,
+          project:     2,
+        };
+        ctx.push("account-events", aevent);
+        return { code: 500, msg: "更新钱包交易记录失败" };
+      }
+    } else {
+      log.info("Executing account events error " + JSON.stringify(result));
+      // rollback
+      for (const event of aevents) {
+        event.undo = true;
+        ctx.push("account-events", event);
+      }
+      // replay
+      const aevent: AccountEvent = {
+        id:          null,
+        type:        0,
+        uid:         ctx.uid,
+        opid:        ctx.uid,
+        aid:         aid,
+        occurred_at: new Date(),
+        amount:      0,
+        undo:        false,
+        project:     2,
+      };
+      ctx.push("account-events", aevent);
+      return result;
+    }
+  } else {
+    return { code: 404, msg: "订单不存在" };
+  }
+});
+
+processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: string) => {
+  log.info(`rechargeDeathOrder, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
+  const ordrep = await rpcAsync<AdditionalOrder>(ctx.domain, process.env["ORDER"], ctx.uid, "getAdditionalOrder", oid);
+  if (ordrep.code === 200) {
+    const order: AdditionalOrder = ordrep.data;
+    if (order.uid !== ctx.uid) {
+      return { code: 404, msg: "不能对他人钱包充值！" };
+    }
+    const now = new Date();
+    const sn = crypto.randomBytes(64).toString("base64");
+    let aid = uuid.v4();
+    let found = false;
+    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'oid' = $2 AND project = 3 AND deleted = false;", [ctx.uid, order.id]);
+    if (dbresult.rowCount > 0) {
+      aid = dbresult.rows[0].id;
+      found = true
+    }
+    const payment = Math.round(order.payment * 100);
+    const tevents: TransactionEvent[] = [
+      {
+        id:          uuid.v4(),
+        type:        found ? 202 : 201,
+        uid:         ctx.uid,
+        title:       found ? "充值" : "加入",
+        license:     order.license_no,
+        amount:      payment,
+        occurred_at: new Date(now.getTime() + 1),
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     3,
+      },
+    ].filter(x => x);
+    const aevents: AccountEvent[] = [
+      {
+        id:          uuid.v4(),
+        type:        1,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 5),
+        amount:      payment,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     3,
+      },
+    ].filter(x => x);
+    for (const event of aevents) {
+      ctx.push("account-events", event, sn);
+    }
+    const result = await waitingAsync(ctx, sn);
+    if (result["code"] === 200) {
+      const tsn = crypto.randomBytes(64).toString("base64");
+      for (const event of tevents) {
+        ctx.push("transaction-events", event, tsn);
+      }
+      const result0 = await waitingAsync(ctx, tsn);
+      if (result0["code"] === 200) {
+        return result0;
+      } else {
+        // rollback
+        for (const event of aevents) {
+          event.undo = true;
+          ctx.push("account-events", event);
+        }
+        // replay
+        const aevent: AccountEvent = {
+          id:          null,
+          type:        0,
+          uid:         ctx.uid,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: new Date(),
+          amount:      0,
+          undo:        false,
+          project:     3,
+        };
+        ctx.push("account-events", aevent);
+        return { code: 500, msg: "更新钱包交易记录失败" };
+      }
+    } else {
+      log.info("Executing account events error " + JSON.stringify(result));
+      // rollback
+      for (const event of aevents) {
+        event.undo = true;
+        ctx.push("account-events", event);
+      }
+      // replay
+      const aevent: AccountEvent = {
+        id:          null,
+        type:        0,
+        uid:         ctx.uid,
+        opid:        ctx.uid,
+        aid:         aid,
+        occurred_at: new Date(),
+        amount:      0,
+        undo:        false,
+        project:     3,
       };
       ctx.push("account-events", aevent);
       return result;

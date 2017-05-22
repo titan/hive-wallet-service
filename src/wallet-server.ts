@@ -87,7 +87,7 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
 });
 
 server.callAsync("rechargePlanOrder", allowAll, "钱包充值", "对计划订单钱包充值", async function (ctx: ServerContext, oid: string) {
-  log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
+  log.info(`rechargePlanOrder, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   try {
     await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
   } catch (error) {
@@ -95,6 +95,46 @@ server.callAsync("rechargePlanOrder", allowAll, "钱包充值", "对计划订单
     return { code: 400, msg: error.message };
   }
   const pkt: CmdPacket = { cmd: "rechargePlanOrder", args: [oid] };
+  ctx.publish(pkt);
+  const result = await waitingAsync(ctx);
+  if (result.code !== 200) {
+    const e: Error = new Error();
+    e.name = result.code.toString();
+    e.message = result.msg;
+    ctx.report(0, e);
+  }
+  return result;
+});
+
+server.callAsync("rechargeThirdOrder", allowAll, "钱包充值", "对三者订单钱包充值", async function (ctx: ServerContext, oid: string) {
+  log.info(`rechargeThirdOrder, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
+  try {
+    await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: error.message };
+  }
+  const pkt: CmdPacket = { cmd: "rechargeThirdOrder", args: [oid] };
+  ctx.publish(pkt);
+  const result = await waitingAsync(ctx);
+  if (result.code !== 200) {
+    const e: Error = new Error();
+    e.name = result.code.toString();
+    e.message = result.msg;
+    ctx.report(0, e);
+  }
+  return result;
+});
+
+server.callAsync("rechargeDeathOrder", allowAll, "钱包充值", "对死亡订单钱包充值", async function (ctx: ServerContext, oid: string) {
+  log.info(`rechargeDeathOrder, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
+  try {
+    await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: error.message };
+  }
+  const pkt: CmdPacket = { cmd: "rechargeDeathOrder", args: [oid] };
   ctx.publish(pkt);
   const result = await waitingAsync(ctx);
   if (result.code !== 200) {
