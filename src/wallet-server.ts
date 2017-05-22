@@ -33,7 +33,7 @@ const allowAll: Permission[] = [["mobile", true], ["admin", true]];
 const mobileOnly: Permission[] = [["mobile", true], ["admin", false]];
 const adminOnly: Permission[] = [["mobile", false], ["admin", true]];
 
-server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async (ctx: ServerContext, slim?: boolean, uid?: string) => {
+server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所有帐号", async (ctx: ServerContext, project: number = 1, slim?: boolean, uid?: string) => {
   if (!uid) {
     uid = ctx.uid;
   }
@@ -42,13 +42,16 @@ server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所�
   }
   log.info(`getWallet, slim: ${slim}, uid: ${uid}`);
   try {
-    await verify([uuidVerifier("uid", ctx.uid)]);
+    await verify([
+      uuidVerifier("uid", ctx.uid),
+      numberVerifier("project", project),
+    ]);
   } catch (error) {
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
 
-  const buf = await ctx.cache.hgetAsync(slim ? "wallet-slim-entities" : "wallet-entities", uid);
+  const buf = await ctx.cache.hgetAsync(slim ? `wallet-slim-entities-${project}` : `wallet-entities-${project}`, uid);
   if (buf) {
     const wallet = await msgpack_decode_async(buf) as Wallet;
     return { code: 200, data: convert_wallet_unit(wallet) };
@@ -57,22 +60,23 @@ server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所�
   }
 });
 
-server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", async (ctx: ServerContext, offset: number, limit: number, uid?: string) => {
+server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", async (ctx: ServerContext, offset: number, limit: number, project: number = 1, uid?: string) => {
   if (!uid) {
     uid = ctx.uid;
   }
-  log.info(`getTransactions, offset: ${offset}, limit: ${limit}, uid: ${uid}`);
+  log.info(`getTransactions, offset: ${offset}, limit: ${limit}, project: ${project}, uid: ${uid}`);
   try {
     await verify([
       uuidVerifier("uid", uid),
+      numberVerifier("project", project),
       numberVerifier("offset", offset),
-      numberVerifier("limit", limit)
+      numberVerifier("limit", limit),
     ]);
   } catch (error) {
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
-  const pkts = await ctx.cache.zrevrangeAsync(`transactions:${uid}`, offset, limit);
+  const pkts = await ctx.cache.zrevrangeAsync(`transactions-${project}:${uid}`, offset, limit);
   const transactions = [];
   log.info("got transactions: " + pkts.length);
   for (const pkt of pkts) {
@@ -82,7 +86,7 @@ server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱�
   return { code: 200, data: transactions };
 });
 
-server.callAsync("recharge", allowAll, "钱包充值", "被order模块所调用", async function (ctx: ServerContext, oid: string) {
+server.callAsync("rechargePlanOrder", allowAll, "钱包充值", "对计划订单钱包充值", async function (ctx: ServerContext, oid: string) {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   try {
     await verify([uuidVerifier("uid", ctx.uid), uuidVerifier("oid", oid)]);
@@ -90,7 +94,7 @@ server.callAsync("recharge", allowAll, "钱包充值", "被order模块所调用"
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
-  const pkt: CmdPacket = { cmd: "recharge", args: [oid] };
+  const pkt: CmdPacket = { cmd: "rechargePlanOrder", args: [oid] };
   ctx.publish(pkt);
   const result = await waitingAsync(ctx);
   if (result.code !== 200) {
@@ -152,6 +156,7 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
     occurred_at: now,
     maid:        maid,
     undo:        false,
+    project:     1,
   };
   ctx.push("transaction-events", tevent);
   const result = await waitingAsync(ctx);
@@ -165,6 +170,7 @@ server.callAsync("unfreeze", adminOnly, "解冻资金", "用户账户资金解�
       amount:      converted_amount,
       maid:        maid,
       undo:        false,
+      project:     1,
     };
     ctx.push("account-events", aevent);
     const result1 = await waitingAsync(ctx);
@@ -225,6 +231,14 @@ server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所�
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
+  let project = 1;
+  const apkt = await ctx.cache.hgetAsync("account-entities", aid);
+  if (apkt) {
+    const account: Account = await msgpack_decode_async(apkt) as Account;
+    if (account) {
+      project = account.project;
+    }
+  }
   const aevent: AccountEvent = {
     id:          null,
     type:        0,
@@ -233,6 +247,7 @@ server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所�
     occurred_at: new Date(),
     amount:      0,
     undo:        false,
+    project:     project,
   };
   ctx.push("account-events", aevent);
   return await waitingAsync(ctx);
@@ -240,9 +255,15 @@ server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所�
 
 server.callAsync("replayAll", adminOnly, "重播事件", "重新执行所有帐号下所有已发生的事件", async (ctx: ServerContext) => {
   log.info(`replayAll`);
-  await ctx.cache.delAsync("account-entities");
-  await ctx.cache.delAsync("wallet-entities");
-  await ctx.cache.delAsync("wallet-slim-entities");
+  const multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
+  multi.del("account-entities");
+  multi.del("wallet-entities-1");
+  multi.del("wallet-entities-2");
+  multi.del("wallet-entities-3");
+  multi.del("wallet-slim-entities-1");
+  multi.del("wallet-slim-entities-2");
+  multi.del("wallet-slim-entities-3");
+  await multi.execAsync();
   const pkt: CmdPacket = { cmd: "replayAll", args: [] };
   ctx.publish(pkt);
   return await waitingAsync(ctx);

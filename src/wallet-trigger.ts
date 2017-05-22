@@ -4,7 +4,7 @@ import * as msgpack from "msgpack-lite";
 import * as bunyan from "bunyan";
 import { createClient, RedisClient, Multi } from "redis";
 import { Socket, socket } from "nanomsg";
-import { OrderEvent, OrderEventType, PlanOrder } from "order-library";
+import { OrderEvent, OrderEventType, PlanOrder, AdditionalOrder, AdditionalOrderEventType, AdditionalOrderEvent } from "order-library";
 import { User } from "profile-library";
 
 const log = bunyan.createLogger({
@@ -30,15 +30,15 @@ const log = bunyan.createLogger({
 export function run () {
   const cache: RedisClient = bluebird.promisifyAll(createClient(process.env["CACHE_PORT"], process.env["CACHE_HOST"], { "return_buffers": true })) as RedisClient;
 
-  const mobile_socket: Socket = socket("sub");
-  mobile_socket.connect(process.env["ORDER-EVENT-TRIGGER"]);
-  mobile_socket.on("data", function (buf) {
+  const socket1: Socket = socket("sub");
+  socket1.connect(process.env["PLAN-ORDER-EVENT-TRIGGER"]);
+  socket1.on("data", function (buf) {
     const event: OrderEvent = msgpack.decode(buf) as OrderEvent;
     log.info(`Got order event (${JSON.stringify(event)})`);
     (async () => {
       switch(event.type) {
         case OrderEventType.PAY: {
-          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, "recharge", event.oid);
+          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, "rechargePlanOrder", event.oid);
           log.info(`recharge result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
           break;
         }
@@ -49,5 +49,24 @@ export function run () {
       }
     })();
   });
-  log.info(`wallet-trigger is running on ${process.env["ORDER-EVENT-TRIGGER"]}`);
+
+  const socket2: Socket = socket("sub");
+  socket2.connect(process.env["ADDITIONAL-ORDER-EVENT-TRIGGER"]);
+  socket2.on("data", function (buf) {
+    const event: AdditionalOrderEvent = msgpack.decode(buf) as AdditionalOrderEvent;
+    log.info(`Got addtional order event (${JSON.stringify(event)})`);
+    (async () => {
+      switch(event.type) {
+        case AdditionalOrderEventType.PAY: {
+          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, event.order_type === 1 ? "rechargeThirdOrder" : "rechargeDeathOrder", event.oid);
+          log.info(`${event.order_type === 1 ? "rechargeThirdOrder" : "rechargeDeathOrder"} result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
+          break;
+        }
+        default: break;
+      }
+    })();
+  });
+
+
+  log.info(`wallet-trigger is running on ${process.env["PLAN-ORDER-EVENT-TRIGGER"]} and ${process.env["ADDITIONAL-ORDER-EVENT-TRIGGER"]}`);
 }

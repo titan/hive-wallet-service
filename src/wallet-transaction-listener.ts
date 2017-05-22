@@ -32,7 +32,7 @@ const log = bunyan.createLogger({
 
 async function handle_undo_event(db: PGClient, cache: RedisClient, event: TransactionEvent) {
   await db.query("DELETE FROM transactions WHERE id = $1;", [event.id]);
-  await cache.zremrangebyscoreAsync(`transactions:${event.uid}`, event.occurred_at.getTime(), event.occurred_at.getTime());
+  await cache.zremrangebyscoreAsync(`transactions-${event.project}:${event.uid}`, event.occurred_at.getTime(), event.occurred_at.getTime());
 
   return { code: 200, data: `Transaction ${event.id} deleted` };
 }
@@ -40,10 +40,11 @@ async function handle_undo_event(db: PGClient, cache: RedisClient, event: Transa
 async function handle_event(db: PGClient, cache: RedisClient, event: TransactionEvent) {
   const aid = event.aid;
   const uid = event.uid;
+  const project = event.project;
   // get license if it does not exist
   let license = event.license;
   if (!license) {
-    const buf = await cache.hgetAsync("wallet-slim-entities", uid);
+    const buf = await cache.hgetAsync(`wallet-slim-entities-${project}`, uid);
     if (buf) {
       const wallet: Wallet = (await msgpack_decode_async(buf)) as Wallet;
       if (wallet) {
@@ -58,11 +59,20 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
   }
 
   // check whether it is duplicate transaction
-  const result = (event.type === 1 || event.type === 2 || event.type === 3 || event.type === 4) ?
-    await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'oid' = $3;", [aid, event.type, event.oid]) :
-    ((event.type === 6 || event.type === 7) ?
-     await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'maid' = $3 AND data::jsonb->>'sn' = $4;", [aid, event.type, event.maid, event.sn]) :
-     await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'sn' = $3;", [aid, event.type, event.sn]));
+  let result = null;
+  if (project === 1) {
+    if (event.type === 1 || event.type === 2 || event.type === 3 || event.type === 4) {
+      result = await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'oid' = $3 AND project = $4 AND deleted = false;", [aid, event.type, event.oid, project]);
+    } else {
+      if (event.type === 6 || event.type === 7) {
+        result = await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'maid' = $3 AND data::jsonb->>'sn' = $4 AND project = $5 AND deleted = false;", [aid, event.type, event.maid, event.sn, project]);
+      } else {
+        result = await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'sn' = $3 AND project = $4 AND deleted = false;", [aid, event.type, event.sn, project]);
+      }
+    }
+  } else {
+    result = await db.query("SELECT 1 FROM transactions WHERE aid = $1 AND type = $2 AND data::jsonb->>'oid' = $3 AND project = $4 AND deleted = false;", [aid, event.type, event.oid, project]);
+  }
 
   if (result.rowCount === 0) {
     let data = {};
@@ -73,14 +83,14 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
     data = event.maid ? { ...data, maid: event.maid } : data;
 
     // it's new transaction
-    await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9);", [event.id, event.type, aid, uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at]);
-    const tresult = await db.query("SELECT id, type, aid, uid, title, license, amount, data, occurred_at FROM transactions WHERE uid = $1", [uid]);
+    await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at, project) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);", [event.id, event.type, aid, uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at, project]);
+    const tresult = await db.query("SELECT id, type, aid, uid, title, license, amount, data, occurred_at FROM transactions WHERE uid = $1 AND project = $2 AND deleted = false ORDER BY occurred_at", [uid, project]);
     if (tresult.rowCount > 0) {
       const multi = bluebird.promisifyAll(cache.multi()) as Multi;
-      const key = `transactions:${uid}`;
+      const key = `transactions-${project}:${uid}`;
       multi.del(key);
       for (const row of tresult.rows) {
-        const transaction = {
+        const transaction: Transaction = {
           id: row.id,
           type: row.type,
           aid: row.aid,
@@ -92,6 +102,7 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
           oid: row.data.oid || undefined,
           maid: row.data.maid || undefined,
           sn: row.data.sn || undefined,
+          project: row.project,
         }
         const pkt = await msgpack_encode_async(transaction);
         multi.zadd(key, row.occurred_at.getTime(), pkt);
@@ -100,7 +111,7 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
       return { code: 200, data: "Okay" };
     } else {
       const pkt = await msgpack_encode_async(event);
-      await cache.zaddAsync(`transactions:${uid}`, event.occurred_at.getTime(), pkt);
+      await cache.zaddAsync(`transactions-${project}:${uid}`, event.occurred_at.getTime(), pkt);
       return { code: 200, data: "Okay" };
     }
   } else {
@@ -125,7 +136,7 @@ listener.onEvent(async function (ctx: BusinessEventContext, data: any) {
   }
 
   // get aid from database if it does not exist
-  if (!aid) {
+  if (!aid && event.project === 1) {
     if (!uid || !event.vid) {
       return { code: 404, msg: "需要提供 uid 和 vid" };
     }

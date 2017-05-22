@@ -10,6 +10,7 @@ export interface AccountEvent {
   vid?: string;
   maid?: string;
   undo: boolean;
+  project: number;
 };
 
 export interface TransactionEvent {
@@ -26,4 +27,5 @@ export interface TransactionEvent {
   maid?: string;
   sn?: string;
   undo: boolean;
+  project: number;
 };

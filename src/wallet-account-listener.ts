@@ -62,6 +62,7 @@ function row2event(row): AccountEvent {
     occurred_at: row.occurred_at,
     amount:      0,
     undo:        false,
+    project:     row.project,
   };
 
   if (row.data) {
@@ -75,12 +76,12 @@ function row2event(row): AccountEvent {
   return event;
 }
 
-async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, account?: Account) {
-  let wallet = null;
+async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, project: number, account?: Account) {
+  let wallet: Wallet = null;
   const accounts = account ? [ account ] : [];
-  const wbuf = await cache.hgetAsync("wallet-entities", uid);
+  const wbuf = await cache.hgetAsync(`wallet-entities-${project}`, uid);
   if (wbuf) {
-    wallet = await msgpack_decode_async(wbuf);
+    wallet = await msgpack_decode_async(wbuf) as Wallet;
     if (wallet.accounts) {
       if (account) {
         for (const a of wallet.accounts) {
@@ -106,6 +107,7 @@ async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, accoun
       cashable: 0,
       balance:  0,
       accounts: accounts,
+      project: project,
     };
   }
   let frozen   = 0;
@@ -120,7 +122,7 @@ async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, accoun
   wallet.cashable = cashable;
   wallet.balance  = balance;
   const wpkt = await msgpack_encode_async(wallet);
-  await cache.hsetAsync("wallet-entities", uid, wpkt);
+  await cache.hsetAsync(`wallet-entities-${project}`, uid, wpkt);
   for (const a of wallet.accounts) {
     if (a.vehicle) {
       const vehicle = {
@@ -131,7 +133,7 @@ async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, accoun
     }
   }
   const wpkt2 = await msgpack_encode_async(wallet);
-  await cache.hsetAsync("wallet-slim-entities", uid, wpkt2);
+  await cache.hsetAsync(`wallet-slim-entities-${project}`, uid, wpkt2);
   return { code: 200, data: "Okay" };
 }
 
@@ -145,7 +147,7 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
     }
     const apkt = await msgpack_encode_async(account);
     await cache.hsetAsync("account-entities", account.id, apkt);
-    return await sync_wallet(db, cache, account.uid, account);
+    return await sync_wallet(db, cache, account.uid, account.project, account);
   } else {
     return { code: 500, msg: "无法从事件流中合成帐号" };
   }
@@ -160,28 +162,28 @@ function play(account: Account, event: AccountEvent) {
     newaccount.created_at = event.occurred_at;
   }
   switch (event.type) {
-    case  1: return { ... newaccount, cashable_balance: account.cashable_balance + event.amount };
-    case  2: return { ... newaccount, cashable_balance: account.cashable_balance - event.amount };
-    case  3: return { ... newaccount, balance0: account.balance0 + event.amount };
-    case  4: return { ... newaccount, balance0: account.balance0 - event.amount };
-    case  5: return { ... newaccount, balance1: account.balance1 + event.amount };
-    case  6: return { ... newaccount, balance1: account.balance1 - event.amount };
-    case  7: return { ... newaccount, bonus: account.bonus + event.amount };
-    case  8: return { ... newaccount, bonus: account.bonus - event.amount };
-    case  9: return { ... newaccount, balance0: account.balance0 - event.amount, frozen_balance0: account.frozen_balance0 + event.amount };
-    case 10: return { ... newaccount, balance0: account.balance0 + event.amount, frozen_balance0: account.frozen_balance0 - event.amount };
-    case 11: return { ... newaccount, balance1: account.balance1 - event.amount, frozen_balance1: account.frozen_balance1 + event.amount };
-    case 12: return { ... newaccount, balance1: account.balance1 + event.amount, frozen_balance1: account.frozen_balance1 - event.amount };
-    case 13: return { ... newaccount, paid: account.paid + event.amount };
-    case 14: return { ... newaccount, paid: account.paid - event.amount };
-    default: return account;
+  case  1: return { ... newaccount, cashable_balance: account.cashable_balance + event.amount };
+  case  2: return { ... newaccount, cashable_balance: account.cashable_balance - event.amount };
+  case  3: return { ... newaccount, balance0: account.balance0 + event.amount };
+  case  4: return { ... newaccount, balance0: account.balance0 - event.amount };
+  case  5: return { ... newaccount, balance1: account.balance1 + event.amount };
+  case  6: return { ... newaccount, balance1: account.balance1 - event.amount };
+  case  7: return { ... newaccount, bonus: account.bonus + event.amount };
+  case  8: return { ... newaccount, bonus: account.bonus - event.amount };
+  case  9: return { ... newaccount, balance0: account.balance0 - event.amount, frozen_balance0: account.frozen_balance0 + event.amount };
+  case 10: return { ... newaccount, balance0: account.balance0 + event.amount, frozen_balance0: account.frozen_balance0 - event.amount };
+  case 11: return { ... newaccount, balance1: account.balance1 - event.amount, frozen_balance1: account.frozen_balance1 + event.amount };
+  case 12: return { ... newaccount, balance1: account.balance1 + event.amount, frozen_balance1: account.frozen_balance1 - event.amount };
+  case 13: return { ... newaccount, paid: account.paid + event.amount };
+  case 14: return { ... newaccount, paid: account.paid - event.amount };
+  default: return account;
   }
 }
 
-async function play_events(db: PGClient, cache: RedisClient, aid: string) {
+async function play_events(db: PGClient, cache: RedisClient, aid: string, project: number) {
   // 1. detect how many events haven't been played
   let since = null;
-  let account = null;
+  let account: Account = null;
   const apkt = await cache.hgetAsync("account-entities", aid);
   if (apkt) {
     account = await msgpack_decode_async(apkt) as Account;
@@ -201,10 +203,11 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string) {
       evtid: null,
       created_at: null,
       updated_at: null,
+      project: project,
     };
     since = new Date(0);
   }
-  const eresult = await db.query("SELECT id, type, opid, uid, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false order by occurred_at;", [aid, since]);
+  const eresult = await db.query("SELECT id, type, opid, uid, project, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false order by occurred_at;", [aid, since]);
   if (eresult.rowCount > 0) {
     // 2. get the snapshot of the account
     for (const row of eresult.rows) {
@@ -231,13 +234,14 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
   const type        = event.type;
   const amount      = event.amount;
   const occurred_at = event.occurred_at;
+  const project     = event.project;
 
   // whether has event occurred?
   // if not, save and play it
   const eresult = oid ?
-    await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'oid' = $4 AND deleted = false;", [aid, uid, type, oid]) :
+    await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'oid' = $4 AND project = $5 AND deleted = false;", [aid, uid, type, oid, project]) :
     (maid ?
-     await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'maid' = $4 AND deleted = false;", [aid, uid, type, maid])
+     await db.query("SELECT id FROM account_events WHERE aid = $1 AND uid = $2 AND type = $3 AND data::jsonb->>'maid' = $4 AND project = $5 AND deleted = false;", [aid, uid, type, maid, project])
      :
        { rowCount: 0 }
     );
@@ -245,11 +249,11 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
     // event not found
     if (type !== 0) {
       const data = vid ? (oid ? JSON.stringify({ oid, amount, vid }) : JSON.stringify({ maid, amount, vid })) : (oid ? JSON.stringify({ oid, amount }) : JSON.stringify({ maid, amount })) ;
-      await db.query("INSERT INTO account_events (id, type, opid, uid, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7);", [eid, type, opid, uid, aid, occurred_at, data]);
-      return await play_events(db, cache, aid);
+      await db.query("INSERT INTO account_events (id, type, opid, uid, project, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);", [eid, type, opid, uid, project, aid, occurred_at, data]);
+      return await play_events(db, cache, aid, project);
     } else {
       await cache.hdelAsync("account-entities", aid); // replay events
-      return await play_events(db, cache, aid);
+      return await play_events(db, cache, aid, project);
     }
   } else {
     return { code: 208, msg: "重复执行事件: " + string_of_event_type(type) };
@@ -279,6 +283,7 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const vid         = event.vid;
   const amount      = event.amount;
   const occurred_at = event.occurred_at;
+  const project     = event.project;
   let uid           = event.uid;
 
   log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}`);
@@ -295,8 +300,7 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
       if (apkt && type === 0) {
         const account = await msgpack_decode_async(apkt) as Account;
         const result = await cache.hdelAsync("account-entities", aid);
-        const pkt = await cache.hgetAsync("account-entities", aid);
-        return await sync_wallet(db, cache, account.uid);
+        return await sync_wallet(db, cache, account.uid, account.project);
       } else {
         return { code: 404, msg: "用户不存在，无法执行事件: " + string_of_event_type(type) };
       }

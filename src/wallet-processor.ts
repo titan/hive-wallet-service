@@ -32,7 +32,7 @@ const log = bunyan.createLogger({
 });
 
 export const processor = new Processor();
-processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
+processor.callAsync("rechargePlanOrder", async (ctx: ProcessorContext, oid: string) => {
   log.info(`recharge, oid: ${oid}, uid: ${ctx.uid}, sn: ${ctx.sn}`);
   const ordrep = await rpcAsync<PlanOrder>(ctx.domain, process.env["ORDER"], ctx.uid, "getPlanOrder", oid);
   if (ordrep.code === 200) {
@@ -64,6 +64,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       },
       order.payment_method === 2 ? {
         id:          uuid.v4(),
@@ -77,6 +78,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       } :            null,
       (summary !== payment) ? {
         id:          uuid.v4(),
@@ -90,6 +92,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       } :            null,
       {
         id:          uuid.v4(),
@@ -103,6 +106,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       },
       {
         id:          uuid.v4(),
@@ -116,6 +120,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       }
     ].filter(x => x);
     let smoney = 0;
@@ -141,6 +146,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       },
       {
         id:          uuid.v4(),
@@ -153,6 +159,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       },
       {
         id:          uuid.v4(),
@@ -165,6 +172,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       },
       (bonus > 0) ? {
         id:          uuid.v4(),
@@ -177,6 +185,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         oid:         order.id,
         aid:         aid,
         undo:        false,
+        project:     1,
       } : null,
     ].filter(x => x);
     for (const event of aevents) {
@@ -207,6 +216,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
           occurred_at: new Date(),
           amount:      0,
           undo:        false,
+          project:     1,
         };
         ctx.push("account-events", aevent);
         return { code: 500, msg: "更新钱包交易记录失败" };
@@ -228,6 +238,7 @@ processor.callAsync("recharge", async (ctx: ProcessorContext, oid: string) => {
         occurred_at: new Date(),
         amount:      0,
         undo:        false,
+        project:     1,
       };
       ctx.push("account-events", aevent);
       return result;
@@ -261,6 +272,7 @@ processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: n
               amount:      (amount > unfrozen ? unfrozen : amount),
               maid:        maid,
               undo:        false,
+              project:     1,
             }
             aevents.push(evt);
             break;
@@ -276,6 +288,7 @@ processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: n
               amount:      (amount > unfrozen ? unfrozen : amount),
               maid:        maid,
               undo:        false,
+              project:     1,
             }
             aevents.push(evt);
             break;
@@ -294,6 +307,7 @@ processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: n
                 amount:      rest,
                 maid:        maid,
                 undo:        false,
+                project:     1,
               }
               aevents.push(evt);
             } else {
@@ -306,6 +320,7 @@ processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: n
                 amount:      unfrozen0,
                 maid:        maid,
                 undo:        false,
+                project:     1,
               }
               aevents.push(evt);
               rest -= unfrozen0;
@@ -319,6 +334,7 @@ processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: n
                   amount:      (rest > unfrozen1 ? unfrozen1 : rest),
                   maid:        maid,
                   undo:        false,
+                  project:     1,
                 }
                 aevents.push(evt);
               }
@@ -345,6 +361,7 @@ processor.callAsync("freeze", async (ctx: ProcessorContext, aid: string, type: n
       occurred_at: aevents[0].occurred_at,
       maid:        maid,
       undo:        false,
+      project:     1,
     };
     let found_account_error = false;
     let aresult = null;
@@ -414,6 +431,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      sb,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
         aevents.push({
           id:          uuid.v4(),
@@ -424,6 +442,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      bb,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
       } else if (type === 2) {
         if (bb < amount) {
@@ -438,6 +457,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      amount,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
       } else if (type === 1) {
         if (sb < amount) {
@@ -452,6 +472,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      amount,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
       }
       let to_deduct = amount;
@@ -468,6 +489,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      to_deduct,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
       } else if (account.bonus > 0) {
         aevents.push({
@@ -479,6 +501,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      account.bonus,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
         to_deduct -= account.bonus;
       }
@@ -492,6 +515,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           amount:      to_deduct,
           aid:         aid,
           undo:        false,
+          project:     1,
         });
       }
       const asn = crypto.randomBytes(64).toString("base64");
@@ -520,6 +544,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
           sn:          sn,
           aid:         aid,
           undo:        false,
+          project:     1,
         };
         const tsn = crypto.randomBytes(64).toString("base64");
         ctx.push("transaction-events", tevent, tsn);
@@ -541,6 +566,7 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
             occurred_at: new Date(),
             amount:      0,
             undo:        false,
+            project:     1,
           };
           ctx.push("account-events", aevent);
           return { code: 500, msg: "更新钱包交易记录失败" };
@@ -553,14 +579,14 @@ processor.callAsync("deduct", async (ctx: ProcessorContext, aid: string, amount:
   return { code: 404, msg: "扣款钱包帐号不存在" };
 });
 
-processor.callAsync("exportAccounts", async (ctx: ProcessorContext, filename: string) => {
+processor.callAsync("exportAccounts", async (ctx: ProcessorContext, filename: string, project: number = 1) => {
   const walletpkts = await ctx.cache.hvalsAsync("wallet-slim-entities");
   const wallets: Wallet[] = (await Promise.all(walletpkts.map(x => msgpack_decode_async(x)))) as Wallet[];
   const accounts = wallets.reduce((acc, x) => acc.concat(x.accounts), []);
   const oids = {};
   const uids = [];
   for (const account of accounts) {
-    const aresult = await ctx.db.query("SELECT distinct id, uid, data->>'oid' AS oid FROM account_events WHERE aid = $1 AND data ? 'oid' AND deleted = false", [account.id]);
+    const aresult = await ctx.db.query("SELECT distinct id, uid, data->>'oid' AS oid FROM account_events WHERE aid = $1 AND project = $2 AND data ? 'oid' AND deleted = false", [account.id, project]);
     if (aresult.rowCount > 0) {
       const oid = aresult.rows[0].oid;
       const uid = aresult.rows[0].uid;
@@ -604,15 +630,17 @@ function refresh_transactions(db, cache, domain: string, uid?: string): Promise<
 async function sync_transactions(db, cache, domain: string, uid?: string): Promise<void> {
   if (!uid) {
     const multi = bluebird.promisifyAll(cache.multi()) as Multi;
-    const keys = await cache.keysAsync("transactions:*");
+    const keys = await cache.keysAsync("transactions-*:*");
     for (const key of keys) {
       multi.del(key);
     }
     await multi.execAsync();
   } else {
-    await cache.delAsync(`transactions:${uid}`);
+    await cache.delAsync(`transactions-1:${uid}`);
+    await cache.delAsync(`transactions-2:${uid}`);
+    await cache.delAsync(`transactions-3:${uid}`);
   }
-  const result = await db.query("SELECT id, uid, aid, type, license, title, amount, occurred_at, data FROM transactions WHERE deleted = false" + (uid ? " AND uid = $1 ORDER BY occurred_at;" : " ORDER BY occurred_at;"), uid ? [uid] : []);
+  const result = await db.query("SELECT id, uid, project, aid, type, license, title, amount, occurred_at, data FROM transactions WHERE deleted = false" + (uid ? " AND uid = $1 ORDER BY occurred_at;" : " ORDER BY occurred_at;"), uid ? [uid] : []);
   const transactions: Transaction[] = [];
   for (const row of result.rows) {
     let transaction: Transaction = {
@@ -624,6 +652,7 @@ async function sync_transactions(db, cache, domain: string, uid?: string): Promi
       title:       row.title,
       amount:      parseFloat(row.amount),
       occurred_at: row.occurred_at,
+      project:     row.project,
     };
     if (row.data) {
       transaction = row.data.oid ? { ...transaction, oid: row.data.oid } : transaction;
@@ -636,7 +665,7 @@ async function sync_transactions(db, cache, domain: string, uid?: string): Promi
   const multi1 = bluebird.promisifyAll(cache.multi()) as Multi;
   for (const transaction of transactions) {
     const pkt = await msgpack_encode_async(transaction);
-    multi1.zadd("transactions:" + transaction.uid, transaction.occurred_at.getTime(), pkt);
+    multi1.zadd(`transactions-${transaction.project}:` + transaction.uid, transaction.occurred_at.getTime(), pkt);
   }
   return multi1.execAsync();
 }
@@ -657,16 +686,41 @@ processor.callAsync("replayAll", async (ctx: ProcessorContext) => {
   if (result.rowCount > 0) {
     for (const row of result.rows) {
       const aid = row.aid;
-      const event: AccountEvent = {
-        id:          null,
-        type:        0,
-        opid:        ctx.uid,
-        aid:         aid,
-        occurred_at: null,
-        amount:      0,
-        undo:        false,
-      };
-      ctx.push("account-events", event);
+      const events: AccountEvent[] = [
+        {
+          id:          null,
+          type:        0,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: null,
+          amount:      0,
+          undo:        false,
+          project:     1,
+        },
+        {
+          id:          null,
+          type:        0,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: null,
+          amount:      0,
+          undo:        false,
+          project:     2,
+        },
+        {
+          id:          null,
+          type:        0,
+          opid:        ctx.uid,
+          aid:         aid,
+          occurred_at: null,
+          amount:      0,
+          undo:        false,
+          project:     3,
+        },
+      ];
+      for (const evt of events) {
+        ctx.push("account-events", evt);
+      }
     }
     return  { code: 200, data: "Okay" };
   } else {
