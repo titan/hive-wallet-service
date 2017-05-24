@@ -285,7 +285,7 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
     const aevents: AccountEvent[] = [
       {
         id:          uuid.v4(),
-        type:        1,
+        type:        5,
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 5),
@@ -392,7 +392,7 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
     const aevents: AccountEvent[] = [
       {
         id:          uuid.v4(),
-        type:        1,
+        type:        5,
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 5),
