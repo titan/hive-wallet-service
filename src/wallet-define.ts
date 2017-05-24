@@ -1,3 +1,5 @@
+import { Person } from "person-library";
+
 export interface AccountEvent {
   id: string;
   type: number;
@@ -11,6 +13,8 @@ export interface AccountEvent {
   maid?: string;
   undo: boolean;
   project: number;
+  license?: string; // useful for project = 2 or project = 3
+  owner?: Person; // only used for project = 2 or project = 3
 };
 
 export interface TransactionEvent {

@@ -294,6 +294,8 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
         aid:         aid,
         undo:        false,
         project:     2,
+        license:     order.license_no,
+        owner:       order.owner,
       },
     ].filter(x => x);
     for (const event of aevents) {
@@ -401,6 +403,8 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
         aid:         aid,
         undo:        false,
         project:     3,
+        license:     order.license_no,
+        owner:       order.owner,
       },
     ].filter(x => x);
     for (const event of aevents) {

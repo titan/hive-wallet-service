@@ -161,6 +161,10 @@ function play(account: Account, event: AccountEvent) {
   if (!newaccount.created_at) {
     newaccount.created_at = event.occurred_at;
   }
+  if (event.project === 2 || event.project === 3) {
+    newaccount.license = event.license || account.license || undefined;
+    newaccount.owner = event.owner || account.owner || undefined;
+  }
   switch (event.type) {
   case  1: return { ... newaccount, cashable_balance: account.cashable_balance + event.amount };
   case  2: return { ... newaccount, cashable_balance: account.cashable_balance - event.amount };
