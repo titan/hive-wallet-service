@@ -146,7 +146,15 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
       }
     }
     const apkt = await msgpack_encode_async(account);
-    await cache.hsetAsync("account-entities", account.id, apkt);
+    const multi: Multi = bluebird.promisifyAll(cache.multi()) as Multi;
+    multi.hset("account-entities", account.id, apkt);
+    if (account.project === 2) {
+      multi.zadd(`accounts-${account.project}`, account.created_at.getTime(), account.id);
+      if (account.owner && account.owner.phone) {
+        multi.zadd(`accounts-of-phone-${account.project}:${account.owner.phone}`, account.created_at.getTime(), account.id);
+      }
+    }
+    await multi.execAsync();
     return await sync_wallet(db, cache, account.uid, account.project, account);
   } else {
     return { code: 500, msg: "无法从事件流中合成帐号" };
@@ -256,7 +264,19 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
       await db.query("INSERT INTO account_events (id, type, opid, uid, project, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);", [eid, type, opid, uid, project, aid, occurred_at, data]);
       return await play_events(db, cache, aid, project);
     } else {
-      await cache.hdelAsync("account-entities", aid); // replay events
+      const multi: Multi = bluebird.promisifyAll(cache.multi()) as Multi;
+      if (event.project === 2 || event.project === 3) {
+        multi.zrem(`accounts-${event.project}`, aid);
+        const pkt: Buffer = await cache.hgetAsync("account-entities", aid);
+        if (pkt) {
+          const account: Account = await msgpack_decode_async(pkt) as Account;
+          if (account.owner && account.owner.phone) {
+            multi.zrem(`accounts-of-phone-${event.project}:${account.owner.phone}`, aid);
+          }
+        }
+      }
+      multi.hdel("account-entities", aid);
+      await multi.execAsync(); // replay events
       return await play_events(db, cache, aid, project);
     }
   } else {
