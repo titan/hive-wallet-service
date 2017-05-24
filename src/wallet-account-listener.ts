@@ -207,7 +207,7 @@ async function play_events(db: PGClient, cache: RedisClient, aid: string, projec
     };
     since = new Date(0);
   }
-  const eresult = await db.query("SELECT id, type, opid, uid, project, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND deleted = false order by occurred_at;", [aid, since]);
+  const eresult = await db.query("SELECT id, type, opid, uid, project, aid, occurred_at, data FROM account_events WHERE aid = $1 AND occurred_at > $2 AND project = $3 AND deleted = false order by occurred_at;", [aid, since, project]);
   if (eresult.rowCount > 0) {
     // 2. get the snapshot of the account
     for (const row of eresult.rows) {
