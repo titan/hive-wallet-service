@@ -71,6 +71,8 @@ function row2event(row): AccountEvent {
     event = data.vid ? { ...event, vid: data.vid } : event;
     event = data.maid ? { ...event, maid: data.maid } : event;
     event = data.amount ? { ...event, amount: data.amount } : event;
+    event = data.license ? { ...event, license: data.license } : event;
+    event = data.owner ? { ...event, owner: data.owner } : event;
   }
 
   return event;
@@ -148,7 +150,7 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
     const apkt = await msgpack_encode_async(account);
     const multi: Multi = bluebird.promisifyAll(cache.multi()) as Multi;
     multi.hset("account-entities", account.id, apkt);
-    if (account.project === 2) {
+    if (account.project === 2 || account.project === 3) {
       multi.zadd(`accounts-${account.project}`, account.created_at.getTime(), account.id);
       if (account.owner && account.owner.phone) {
         multi.zadd(`accounts-of-phone-${account.project}:${account.owner.phone}`, account.created_at.getTime(), account.id);
@@ -260,8 +262,27 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
   if (eresult.rowCount === 0) {
     // event not found
     if (type !== 0) {
-      const data = vid ? (oid ? JSON.stringify({ oid, amount, vid }) : JSON.stringify({ maid, amount, vid })) : (oid ? JSON.stringify({ oid, amount }) : JSON.stringify({ maid, amount })) ;
-      await db.query("INSERT INTO account_events (id, type, opid, uid, project, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);", [eid, type, opid, uid, project, aid, occurred_at, data]);
+      let data = null;
+      if (vid) {
+        if (oid) {
+          data = { oid, amount, vid };
+        } else {
+          data = { maid, amount, vid };
+        }
+      } else {
+        if (oid) {
+          data = { oid, amount };
+        } else {
+          data = { maid, amount };
+        }
+      }
+      if (event.license) {
+        data = { ... data, license: event.license };
+      }
+      if (event.owner) {
+        data = { ... data, owner: event.owner };
+      }
+      await db.query("INSERT INTO account_events (id, type, opid, uid, project, aid, occurred_at, data) VALUES ($1, $2, $3, $4, $5, $6, $7, $8);", [eid, type, opid, uid, project, aid, occurred_at, JSON.stringify(data)]);
       return await play_events(db, cache, aid, project);
     } else {
       const multi: Multi = bluebird.promisifyAll(cache.multi()) as Multi;
@@ -310,7 +331,7 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const project     = event.project;
   let uid           = event.uid;
 
-  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}`);
+  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${event.project}`);
 
   if (!uid) {
     const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1;", [aid]);
@@ -323,7 +344,13 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
       const apkt = await cache.hgetAsync("account-entities", aid);
       if (apkt && type === 0) {
         const account = await msgpack_decode_async(apkt) as Account;
-        const result = await cache.hdelAsync("account-entities", aid);
+        const multi: Multi = bluebird.promisifyAll(cache.multi()) as Multi;
+        multi.hdel("account-entities", aid);
+        multi.zrem(`accounts-${account.project}`, aid);
+        if (account.owner && account.owner.phone) {
+          multi.zrem(`accounts-of-phone-${account.project}:${account.owner.phone}`, aid);
+        }
+        const result = await multi.execAsync();
         return await sync_wallet(db, cache, account.uid, account.project);
       } else {
         return { code: 404, msg: "用户不存在，无法执行事件: " + string_of_event_type(type) };

@@ -261,7 +261,7 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
     const sn = crypto.randomBytes(64).toString("base64");
     let aid = uuid.v4();
     let found = false;
-    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'oid' = $2 AND project = 2 AND deleted = false;", [ctx.uid, order.id]);
+    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'license' = $2 AND project = 2 AND deleted = false;", [ctx.uid, order.license_no]);
     if (dbresult.rowCount > 0) {
       aid = dbresult.rows[0].id;
       found = true
@@ -370,7 +370,7 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
     const sn = crypto.randomBytes(64).toString("base64");
     let aid = uuid.v4();
     let found = false;
-    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'oid' = $2 AND project = 3 AND deleted = false;", [ctx.uid, order.id]);
+    const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'license' = $2 AND project = 3 AND deleted = false;", [ctx.uid, order.license_no]);
     if (dbresult.rowCount > 0) {
       aid = dbresult.rows[0].id;
       found = true

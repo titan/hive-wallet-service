@@ -54,12 +54,13 @@ export function run () {
   socket2.connect(process.env["ADDITIONAL-ORDER-EVENT-TRIGGER"]);
   socket2.on("data", function (buf) {
     const event: AdditionalOrderEvent = msgpack.decode(buf) as AdditionalOrderEvent;
-    log.info(`Got addtional order event (${JSON.stringify(event)})`);
+    log.info(`Got additional order event (${JSON.stringify(event)})`);
     (async () => {
       switch(event.type) {
         case AdditionalOrderEventType.PAY: {
-          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, event.order_type === 1 ? "rechargeThirdOrder" : "rechargeDeathOrder", event.oid);
-          log.info(`${event.order_type === 1 ? "rechargeThirdOrder" : "rechargeDeathOrder"} result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
+          log.info(process.env["WALLET"]);
+          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder", event.oid);
+          log.info(`${event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder"} result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
           break;
         }
         default: break;

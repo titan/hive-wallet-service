@@ -261,6 +261,78 @@ server.callAsync("exportAccounts", adminOnly, "导出帐号信息", "导出所�
   return await waitingAsync(ctx);
 });
 
+async function getAdditionalAccounts(ctx: ServerContext, key: string, start: number, stop: number): Promise<Account[]> {
+  const aids = await ctx.cache.zrevrangeAsync(key, start, stop);
+  const multi: Multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
+  for (const aid of aids) {
+    multi.hget("account-entities", aid);
+  }
+  const apkts = await multi.execAsync();
+  const accounts: Account[] = [];
+  for (const pkt of apkts) {
+    if (pkt) {
+      const account: Account = await msgpack_decode_async(pkt) as Account;
+      if (account) {
+        accounts.push(convert_account_unit(account));
+      }
+    }
+  }
+  return accounts;
+}
+
+server.callAsync("getAdditionalAccounts", adminOnly, "获取Additional帐号列表", "仅在管理平台下使用", async (ctx: ServerContext, project: number, start: number, stop: number) => {
+  log.info(`getAdditionalAccounts, project: ${project}, start: ${start}, stop: ${stop}`);
+  try {
+    await verify([
+      numberVerifier("project", project),
+      numberVerifier("start", start),
+      numberVerifier("stop", stop),
+    ]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: error.message };
+  }
+  if (project !== 2 && project !== 3) {
+    const e = new Error();
+    e.message = "project 必须为 2 或 3";
+    ctx.report(3, e);
+    return { code: 400, msg: e.message};
+  }
+  const accounts: Account[] = await getAdditionalAccounts(ctx, `accounts-${project}`, start, stop);
+  if (accounts && accounts.length > 0) {
+    return { code: 200, data: accounts };
+  } else {
+    return { code: 404, msg: "无帐号信息" };
+  }
+});
+
+server.callAsync("getAdditionalAccountsByPhone", adminOnly, "根据手机号获取Additional帐号列表", "仅在管理平台下使用", async (ctx: ServerContext, project: number, phone: string, start: number, stop: number) => {
+  log.info(`getAdditionalAccountsByPhone, project: ${project}, phone: ${phone}, start: ${start}, stop: ${stop}`);
+  try {
+    await verify([
+      numberVerifier("project", project),
+      stringVerifier("phone", phone),
+      numberVerifier("start", start),
+      numberVerifier("stop", stop),
+    ]);
+  } catch (error) {
+    ctx.report(3, error);
+    return { code: 400, msg: error.message };
+  }
+  if (project !== 2 && project !== 3) {
+    const e = new Error();
+    e.message = "project 必须为 2 或 3";
+    ctx.report(3, e);
+    return { code: 400, msg: e.message};
+  }
+  const accounts: Account[] = await getAdditionalAccounts(ctx, `accounts-of-phone-${project}:${phone}`, start, stop);
+  if (accounts && accounts.length > 0) {
+    return { code: 200, data: accounts };
+  } else {
+    return { code: 404, msg: `无 ${phone} 相关的帐号信息` };
+  }
+});
+
 server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所有已发生的事件", async (ctx: ServerContext, aid: string) => {
   log.info(`replay, aid: ${aid}`);
   try {
