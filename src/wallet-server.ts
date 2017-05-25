@@ -1,4 +1,4 @@
-import { Server, ServerContext, ServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, rpcAsync } from "hive-service";
+import { Server, ServerContext, ServerFunction, CmdPacket, Permission, waitingAsync, msgpack_decode_async, rpcAsync, Paging } from "hive-service";
 import { RedisClient, Multi } from "redis";
 import * as bunyan from "bunyan";
 import * as uuid from "uuid";
@@ -261,11 +261,13 @@ server.callAsync("exportAccounts", adminOnly, "导出帐号信息", "导出所�
   return await waitingAsync(ctx);
 });
 
-async function getAdditionalAccounts(ctx: ServerContext, key: string, start: number, stop: number): Promise<Account[]> {
+async function getAdditionalAccounts(ctx: ServerContext, key: string, start: number, stop: number): Promise<Paging<Account>> {
+  const count = await ctx.cache.zcountAsync(key, "-inf", "+inf");
   const aids = await ctx.cache.zrevrangeAsync(key, start, stop);
   const multi: Multi = bluebird.promisifyAll(ctx.cache.multi()) as Multi;
   for (const aid of aids) {
     multi.hget("account-entities", aid);
+    log.info(aid);
   }
   const apkts = await multi.execAsync();
   const accounts: Account[] = [];
@@ -277,17 +279,24 @@ async function getAdditionalAccounts(ctx: ServerContext, key: string, start: num
       }
     }
   }
-  return accounts;
+  log.info("accounts length " + accounts.length);
+  return {
+    count,
+    start,
+    stop,
+    data: accounts
+  };
 }
 
-server.callAsync("getAdditionalAccounts", adminOnly, "获取Additional帐号列表", "仅在管理平台下使用", async (ctx: ServerContext, project: number, start: number, stop: number) => {
-  log.info(`getAdditionalAccounts, project: ${project}, start: ${start}, stop: ${stop}`);
+server.callAsync("getAdditionalAccounts", adminOnly, "获取Additional帐号列表", "仅在管理平台下使用", async (ctx: ServerContext, project: number, start: number, stop: number, license?: string) => {
+  log.info(`getAdditionalAccounts, project: ${project}, start: ${start}, stop: ${stop}, license?: ${license}`);
   try {
     await verify([
       numberVerifier("project", project),
       numberVerifier("start", start),
       numberVerifier("stop", stop),
-    ]);
+      license ? stringVerifier("license", license) : null,
+    ].filter(x => x));
   } catch (error) {
     ctx.report(3, error);
     return { code: 400, msg: error.message };
@@ -298,12 +307,8 @@ server.callAsync("getAdditionalAccounts", adminOnly, "获取Additional帐号列�
     ctx.report(3, e);
     return { code: 400, msg: e.message};
   }
-  const accounts: Account[] = await getAdditionalAccounts(ctx, `accounts-${project}`, start, stop);
-  if (accounts && accounts.length > 0) {
-    return { code: 200, data: accounts };
-  } else {
-    return { code: 404, msg: "无帐号信息" };
-  }
+  const result: Paging<Account> = await getAdditionalAccounts(ctx, license ? `accounts-of-license-${project}:${license}` : `accounts-${project}`, start, stop);
+  return { code: 200, data: result };
 });
 
 server.callAsync("getAdditionalAccountsByPhone", adminOnly, "根据手机号获取Additional帐号列表", "仅在管理平台下使用", async (ctx: ServerContext, project: number, phone: string, start: number, stop: number) => {
@@ -325,12 +330,8 @@ server.callAsync("getAdditionalAccountsByPhone", adminOnly, "根据手机号获�
     ctx.report(3, e);
     return { code: 400, msg: e.message};
   }
-  const accounts: Account[] = await getAdditionalAccounts(ctx, `accounts-of-phone-${project}:${phone}`, start, stop);
-  if (accounts && accounts.length > 0) {
-    return { code: 200, data: accounts };
-  } else {
-    return { code: 404, msg: `无 ${phone} 相关的帐号信息` };
-  }
+  const result: Paging<Account> = await getAdditionalAccounts(ctx, `accounts-of-phone-${project}:${phone}`, start, stop);
+  return { code: 200, data: result };
 });
 
 server.callAsync("replay", adminOnly, "重播事件", "重新执行帐号下所有已发生的事件", async (ctx: ServerContext, aid: string) => {

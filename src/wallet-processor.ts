@@ -908,10 +908,17 @@ processor.callAsync("replayAll", async (ctx: ProcessorContext) => {
   log.info("replayAll");
   const db: PGClient = ctx.db;
   const cache: RedisClient = ctx.cache;
-  const result = await db.query("SELECT DISTINCT aid FROM account_events;");
+  const result = await db.query("SELECT DISTINCT aid, project FROM account_events;");
   if (result.rowCount > 0) {
+    const multi: Multi = bluebird.promisifyAll(cache.multi()) as Multi;
+    const keys = await cache.keysAsync("account*");
+    for (const key of keys) {
+      multi.del(key);
+    }
+    await multi.execAsync();
     for (const row of result.rows) {
       const aid = row.aid;
+      const project = row.project;
       const events: AccountEvent[] = [
         {
           id:          null,
@@ -921,27 +928,7 @@ processor.callAsync("replayAll", async (ctx: ProcessorContext) => {
           occurred_at: null,
           amount:      0,
           undo:        false,
-          project:     1,
-        },
-        {
-          id:          null,
-          type:        0,
-          opid:        ctx.uid,
-          aid:         aid,
-          occurred_at: null,
-          amount:      0,
-          undo:        false,
-          project:     2,
-        },
-        {
-          id:          null,
-          type:        0,
-          opid:        ctx.uid,
-          aid:         aid,
-          occurred_at: null,
-          amount:      0,
-          undo:        false,
-          project:     3,
+          project:     project,
         },
       ];
       for (const evt of events) {

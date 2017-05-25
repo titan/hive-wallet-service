@@ -155,6 +155,9 @@ async function sync_account(db: PGClient, cache: RedisClient, account: Account) 
       if (account.owner && account.owner.phone) {
         multi.zadd(`accounts-of-phone-${account.project}:${account.owner.phone}`, account.created_at.getTime(), account.id);
       }
+      if (account.license) {
+        multi.zadd(`accounts-of-license-${account.project}:${account.license}`, account.created_at.getTime(), account.id);
+      }
     }
     await multi.execAsync();
     return await sync_wallet(db, cache, account.uid, account.project, account);
@@ -294,6 +297,9 @@ async function handle_event(db: PGClient, cache: RedisClient, event: AccountEven
           if (account.owner && account.owner.phone) {
             multi.zrem(`accounts-of-phone-${event.project}:${account.owner.phone}`, aid);
           }
+          if (account.license) {
+            multi.zrem(`accounts-of-license-${account.project}:${account.license}`, aid);
+          }
         }
       }
       multi.hdel("account-entities", aid);
@@ -331,7 +337,8 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
   const project     = event.project;
   let uid           = event.uid;
 
-  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${event.project}`);
+  log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${project}`);
+  const start: Date = new Date();
 
   if (!uid) {
     const result = await db.query("SELECT DISTINCT uid FROM account_events WHERE aid = $1;", [aid]);
@@ -350,17 +357,32 @@ listener.onEvent(async (ctx: BusinessEventContext, data: any) => {
         if (account.owner && account.owner.phone) {
           multi.zrem(`accounts-of-phone-${account.project}:${account.owner.phone}`, aid);
         }
-        const result = await multi.execAsync();
-        return await sync_wallet(db, cache, account.uid, account.project);
+        if (account.license) {
+          multi.zrem(`accounts-of-license-${account.project}:${account.license}`, aid);
+        }
+        await multi.execAsync();
+        const result = await sync_wallet(db, cache, account.uid, account.project);
+        const stop: Date = new Date();
+        log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${project}, done in ${stop.getTime() - start.getTime()} milliseconds`);
+
+        return result;
       } else {
+        const stop: Date = new Date();
+        log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${project}, done in ${stop.getTime() - start.getTime()} milliseconds`);
         return { code: 404, msg: "用户不存在，无法执行事件: " + string_of_event_type(type) };
       }
     }
   }
 
   if (event.undo) {
-    return handle_undo_event(db, cache, event);
+    const result = handle_undo_event(db, cache, event);
+    const stop: Date = new Date();
+    log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${project}, done in ${stop.getTime() - start.getTime()} milliseconds`);
+    return result;
   } else {
-    return handle_event(db, cache, event);
+    const result = handle_event(db, cache, event);
+    const stop: Date = new Date();
+    log.info(`onEvent: id: ${event.id}, type: ${type}, oid: ${oid}, aid: ${aid}, maid: ${maid}, opid: ${opid}, vid: ${vid}, amount: ${amount}, occurred_at: ${occurred_at ? occurred_at.toISOString() : undefined}, uid: ${uid}, undo: ${event.undo}, project: ${project}, done in ${stop.getTime() - start.getTime()} milliseconds`);
+    return result;
   }
 });
