@@ -60,25 +60,25 @@ server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所�
   }
 });
 
-server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", async (ctx: ServerContext, offset: number, limit: number, project: number = 1, uid?: string) => {
+server.callAsync("getTransactions", allowAll, "获取交易记录", "获取钱包帐号下的交易记录", async (ctx: ServerContext, start: number, stop: number, project: number = 1, license: string, uid?: string) => {
   if (!uid) {
     uid = ctx.uid;
   }
-  log.info(`getTransactions, offset: ${offset}, limit: ${limit}, project: ${project}, uid: ${uid}`);
+  log.info(`getTransactions, start: ${start}, stop: ${stop}, project: ${project}, license: ${license}, uid: ${uid}`);
   try {
     await verify([
       uuidVerifier("uid", uid),
       numberVerifier("project", project),
-      numberVerifier("offset", offset),
-      numberVerifier("limit", limit),
-    ]);
+      numberVerifier("start", start),
+      numberVerifier("stop", stop),
+      license ? stringVerifier("license", license) : null,
+    ].filter(x => x));
   } catch (error) {
     ctx.report(3, error);
     return { code: 400, msg: error.message };
   }
-  const pkts = await ctx.cache.zrevrangeAsync(`transactions-${project}:${uid}`, offset, limit);
+  const pkts = await ctx.cache.zrevrangeAsync(license ? `transactions-${project}:${uid}:${license}` : `transactions-${project}:${uid}`, start, stop);
   const transactions = [];
-  log.info("got transactions: " + pkts.length);
   for (const pkt of pkts) {
     const transaction = await msgpack_decode_async(pkt) as Transaction;
     transactions.push(convert_transaction_unit(transaction));

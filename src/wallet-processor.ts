@@ -855,9 +855,15 @@ async function sync_transactions(db, cache, domain: string, uid?: string): Promi
     }
     await multi.execAsync();
   } else {
-    await cache.delAsync(`transactions-1:${uid}`);
-    await cache.delAsync(`transactions-2:${uid}`);
-    await cache.delAsync(`transactions-3:${uid}`);
+    const multi = bluebird.promisifyAll(cache.multi()) as Multi;
+    const keys = await cache.keysAsync("transactions-*:${uid}:*");
+    for (const key of keys) {
+      multi.del(key);
+    }
+    multi.del(`transactions-1:${uid}`);
+    multi.del(`transactions-2:${uid}`);
+    multi.del(`transactions-3:${uid}`);
+    await multi.execAsync();
   }
   const result = await db.query("SELECT id, uid, project, aid, type, license, title, amount, occurred_at, data FROM transactions WHERE deleted = false" + (uid ? " AND uid = $1 ORDER BY occurred_at;" : " ORDER BY occurred_at;"), uid ? [uid] : []);
   const transactions: Transaction[] = [];
@@ -884,7 +890,8 @@ async function sync_transactions(db, cache, domain: string, uid?: string): Promi
   const multi1 = bluebird.promisifyAll(cache.multi()) as Multi;
   for (const transaction of transactions) {
     const pkt = await msgpack_encode_async(transaction);
-    multi1.zadd(`transactions-${transaction.project}:` + transaction.uid, transaction.occurred_at.getTime(), pkt);
+    multi1.zadd(`transactions-${transaction.project}:${transaction.uid}`, transaction.occurred_at.getTime(), pkt);
+    multi1.zadd(`transactions-${transaction.project}:${transaction.uid}:${transaction.license}`, transaction.occurred_at.getTime(), pkt);
   }
   return multi1.execAsync();
 }

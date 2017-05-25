@@ -86,8 +86,12 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
     await db.query("INSERT INTO transactions (id, type, aid, uid, title, license, amount, data, occurred_at, project) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10);", [event.id, event.type, aid, uid, event.title, license, event.amount, JSON.stringify(data), event.occurred_at, project]);
     const tresult = await db.query("SELECT id, type, aid, uid, title, license, amount, data, occurred_at FROM transactions WHERE uid = $1 AND project = $2 AND deleted = false ORDER BY occurred_at", [uid, project]);
     if (tresult.rowCount > 0) {
+      const keys = await cache.keysAsync(`transactions-${project}:${uid}:*`);
       const multi = bluebird.promisifyAll(cache.multi()) as Multi;
       const key = `transactions-${project}:${uid}`;
+      for (const k of keys) {
+        multi.del(k);
+      }
       multi.del(key);
       for (const row of tresult.rows) {
         const transaction: Transaction = {
@@ -106,12 +110,16 @@ async function handle_event(db: PGClient, cache: RedisClient, event: Transaction
         }
         const pkt = await msgpack_encode_async(transaction);
         multi.zadd(key, row.occurred_at.getTime(), pkt);
+        multi.zadd(`transactions-${project}:${uid}:${row.license}`, row.occurred_at.getTime(), pkt);
       }
       await multi.execAsync();
       return { code: 200, data: "Okay" };
     } else {
       const pkt = await msgpack_encode_async(event);
-      await cache.zaddAsync(`transactions-${project}:${uid}`, event.occurred_at.getTime(), pkt);
+      const multi = bluebird.promisifyAll(cache.multi()) as Multi;
+      multi.zadd(`transactions-${project}:${uid}`, event.occurred_at.getTime(), pkt);
+      multi.zadd(`transactions-${project}:${uid}:${event.license}`, event.occurred_at.getTime(), pkt);
+      multi.execAsync();
       return { code: 200, data: "Okay" };
     }
   } else {
