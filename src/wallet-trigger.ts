@@ -58,7 +58,6 @@ export function run () {
     (async () => {
       switch(event.type) {
         case AdditionalOrderEventType.PAY: {
-          log.info(process.env["WALLET"]);
           const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder", event.oid);
           log.info(`${event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder"} result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
           break;

@@ -46,7 +46,7 @@ processor.callAsync("rechargePlanOrder", async (ctx: ProcessorContext, oid: stri
     let aid = uuid.v4();
     const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'vid' = $2 AND project = 1 AND deleted = false;", [ctx.uid, order.vehicle.id]);
     if (dbresult.rowCount > 0) {
-      aid = dbresult.rows[0].id;
+      aid = dbresult.rows[0].aid;
     }
     const summary = Math.round(order.summary * 100);
     const payment = Math.round(order.payment * 100);
@@ -263,7 +263,7 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
     let found = false;
     const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'license' = $2 AND project = 2 AND deleted = false;", [ctx.uid, order.license_no]);
     if (dbresult.rowCount > 0) {
-      aid = dbresult.rows[0].id;
+      aid = dbresult.rows[0].aid;
       found = true
     }
     const payment = Math.round(order.payment * 100);
@@ -372,7 +372,7 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
     let found = false;
     const dbresult = await ctx.db.query("SELECT DISTINCT aid FROM account_events WHERE uid = $1 AND data ->> 'license' = $2 AND project = 3 AND deleted = false;", [ctx.uid, order.license_no]);
     if (dbresult.rowCount > 0) {
-      aid = dbresult.rows[0].id;
+      aid = dbresult.rows[0].aid;
       found = true
     }
     const payment = Math.round(order.payment * 100);
