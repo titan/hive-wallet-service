@@ -54,7 +54,7 @@ server.callAsync("getWallet", allowAll, "获取钱包实体", "包含用户所�
   const buf = await ctx.cache.hgetAsync(slim ? `wallet-slim-entities-${project}` : `wallet-entities-${project}`, uid);
   if (buf) {
     const wallet = await msgpack_decode_async(buf) as Wallet;
-    return { code: 200, data: convert_wallet_unit(wallet) };
+    return { code: 200, data: convert_wallet_unit(wallet), now: new Date() };
   } else {
     return { code: 404, msg: "钱包不存在" };
   }
