@@ -87,10 +87,12 @@ async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, projec
     if (wallet.accounts) {
       if (account) {
         for (const a of wallet.accounts) {
-          if (a.vid !== account.vid) {
+          if (a.id !== account.id) {
             accounts.push(a);
           } else {
-            account.vehicle = a.vehicle;
+            if (a.vehicle) {
+              account.vehicle = a.vehicle;
+            }
           }
         }
       } else {
