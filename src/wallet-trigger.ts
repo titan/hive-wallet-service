@@ -6,6 +6,8 @@ import { createClient, RedisClient, Multi } from "redis";
 import { Socket, socket } from "nanomsg";
 import { OrderEvent, OrderEventType, PlanOrder, AdditionalOrder, AdditionalOrderEventType, AdditionalOrderEvent } from "order-library";
 import { User } from "profile-library";
+import { Wallet } from "wallet-library";
+import { additionalPaySuccess } from "wechat-library";
 
 const log = bunyan.createLogger({
   name: "wallet-trigger",
@@ -39,7 +41,7 @@ export function run () {
       switch(event.type) {
         case OrderEventType.PAY: {
           const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, "rechargePlanOrder", event.oid);
-          log.info(`recharge result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
+          log.info(`recharge result: ${oresult.code}, ${JSON.stringify(oresult.data)}, ${oresult.msg}`);
           break;
         }
         case OrderEventType.CANCEL: {
@@ -58,8 +60,34 @@ export function run () {
     (async () => {
       switch(event.type) {
         case AdditionalOrderEventType.PAY: {
-          const oresult: Result<any> = await rpcAsync<any>("mobile", process.env["WALLET"], event.opid, event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder", event.oid);
-          log.info(`${event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder"} result: ${oresult.code}, ${oresult.data}, ${oresult.msg}`);
+          const oresult: Result<Wallet> = await rpcAsync<Wallet>("mobile", process.env["WALLET"], event.opid, event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder", event.oid);
+          log.info(`${event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder"} result: ${oresult.code}, ${JSON.stringify(oresult.data)}, ${oresult.msg}`);
+          if (oresult.code === 200) {
+            const wallet: Wallet = oresult.data;
+            const presult: Result<User> = await rpcAsync<User>("admin", process.env["PROFILE"], event.opid, "getUser", event.opid);
+            if (presult.code === 200) {
+              const user: User = presult.data;
+              const aoresult: Result<AdditionalOrder> = await rpcAsync<AdditionalOrder>("admin", process.env["ORDER"], event.opid, "getAdditionalOrder", event.oid);
+              if (aoresult.code === 200) {
+                const order: AdditionalOrder = aoresult.data;
+                for (const account of wallet.accounts) {
+                  if (account.license === order.license_no) {
+                    const new_balance = account.balance1 / 100;
+                    const balance = new_balance - event.payment;
+                    log.info(`additionalPaySuccess(openid: "${user.openid}", license: "${order.license_no}", amount: ${event.payment}, balance: ${balance}, new_balance: ${new_balance}, time: "${event.occurred_at.toISOString()}")`);
+                    const response = await additionalPaySuccess(user.openid, order.license_no, event.payment, balance, new_balance, event.occurred_at);
+                    log.info(`send wechat notification for ${event.project === 2 ? "rechargeThirdOrder" : "rechargeDeathOrder"}(${event.oid}), got response: ${response}`);
+                    return;
+                  }
+                }
+                log.info(`Cannot found account to send wechat notification for additional order ${event.oid}`);
+              } else {
+                log.info(`Cannot found additional order ${event.oid} to send wechat notification with result: ${JSON.stringify(aoresult)}`);
+              }
+            } else {
+              log.info(`Cannot found user ${event.opid} to send wechat notification with result: ${JSON.stringify(presult)}`);
+            }
+          }
           break;
         }
         default: break;

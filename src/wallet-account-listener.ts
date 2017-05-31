@@ -138,7 +138,7 @@ async function sync_wallet(db: PGClient, cache: RedisClient, uid: string, projec
   }
   const wpkt2 = await msgpack_encode_async(wallet);
   await cache.hsetAsync(`wallet-slim-entities-${project}`, uid, wpkt2);
-  return { code: 200, data: "Okay" };
+  return { code: 200, data: wallet };
 }
 
 async function sync_account(db: PGClient, cache: RedisClient, account: Account) {

@@ -1,7 +1,8 @@
 {
   "dependencies": {
     "hive-service": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-service.git",
-    "hive-verify": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-verify.git"
+    "hive-verify": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-verify.git",
+    "wechat-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/wechat-library.git"
   },
   "devDependencies": {
     "@types/bluebird": "^3.0.36",

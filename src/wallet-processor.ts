@@ -200,7 +200,7 @@ processor.callAsync("rechargePlanOrder", async (ctx: ProcessorContext, oid: stri
       }
       const result0 = await waitingAsync(ctx, tsn);
       if (result0["code"] === 200) {
-        return result0;
+        return result; // return the wallet
       } else {
         // rollback
         for (const event of aevents) {
@@ -309,7 +309,7 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
       }
       const result0 = await waitingAsync(ctx, tsn);
       if (result0["code"] === 200) {
-        return result0;
+        return result; // return the wallet
       } else {
         // rollback
         for (const event of aevents) {
@@ -379,7 +379,7 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
     const tevents: TransactionEvent[] = [
       {
         id:          uuid.v4(),
-        type:        found ? 202 : 201,
+        type:        found ? 302 : 301,
         uid:         ctx.uid,
         title:       found ? "充值" : "加入",
         license:     order.license_no,
@@ -418,7 +418,7 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
       }
       const result0 = await waitingAsync(ctx, tsn);
       if (result0["code"] === 200) {
-        return result0;
+        return result; // return the wallet
       } else {
         // rollback
         for (const event of aevents) {
