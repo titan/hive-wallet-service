@@ -266,7 +266,9 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
       aid = dbresult.rows[0].aid;
       found = true
     }
+    const summary = Math.round(order.summary * 100);
     const payment = Math.round(order.payment * 100);
+    const promotion = Math.round(order.promotion * 100);
     const tevents: TransactionEvent[] = [
       {
         id:          uuid.v4(),
@@ -281,6 +283,19 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
         undo:        false,
         project:     2,
       },
+      promotion > 0 ? {
+        id:          uuid.v4(),
+        type:        204,
+        uid:         ctx.uid,
+        title:       "首单优惠3元",
+        license:     order.license_no,
+        amount:      payment,
+        occurred_at: new Date(now.getTime() + 2),
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     2,
+      } : null,
     ].filter(x => x);
     const aevents: AccountEvent[] = [
       {
@@ -289,6 +304,20 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
         opid:        ctx.uid,
         uid:         ctx.uid,
         occurred_at: new Date(now.getTime() + 5),
+        amount:      summary,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     2,
+        license:     order.license_no,
+        owner:       order.owner,
+      },
+      {
+        id:          uuid.v4(),
+        type:        13,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 10),
         amount:      payment,
         oid:         order.id,
         aid:         aid,
@@ -297,6 +326,20 @@ processor.callAsync("rechargeThirdOrder", async (ctx: ProcessorContext, oid: str
         license:     order.license_no,
         owner:       order.owner,
       },
+      promotion > 0 ? {
+        id:          uuid.v4(),
+        type:        7,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 15),
+        amount:      payment,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     2,
+        license:     order.license_no,
+        owner:       order.owner,
+      } : null,
     ].filter(x => x);
     for (const event of aevents) {
       ctx.push("account-events", event, sn);
@@ -375,7 +418,9 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
       aid = dbresult.rows[0].aid;
       found = true
     }
+    const summary = Math.round(order.summary * 100);
     const payment = Math.round(order.payment * 100);
+    const promotion = Math.round(order.promotion * 100);
     const tevents: TransactionEvent[] = [
       {
         id:          uuid.v4(),
@@ -390,6 +435,19 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
         undo:        false,
         project:     3,
       },
+      promotion > 0 ? {
+        id:          uuid.v4(),
+        type:        304,
+        uid:         ctx.uid,
+        title:       "首单优惠3元",
+        license:     order.license_no,
+        amount:      payment,
+        occurred_at: new Date(now.getTime() + 2),
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     3,
+      } : null,
     ].filter(x => x);
     const aevents: AccountEvent[] = [
       {
@@ -406,6 +464,34 @@ processor.callAsync("rechargeDeathOrder", async (ctx: ProcessorContext, oid: str
         license:     order.license_no,
         owner:       order.owner,
       },
+      {
+        id:          uuid.v4(),
+        type:        13,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 10),
+        amount:      payment,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     3,
+        license:     order.license_no,
+        owner:       order.owner,
+      },
+      promotion > 0 ? {
+        id:          uuid.v4(),
+        type:        7,
+        opid:        ctx.uid,
+        uid:         ctx.uid,
+        occurred_at: new Date(now.getTime() + 15),
+        amount:      payment,
+        oid:         order.id,
+        aid:         aid,
+        undo:        false,
+        project:     3,
+        license:     order.license_no,
+        owner:       order.owner,
+      } : null,
     ].filter(x => x);
     for (const event of aevents) {
       ctx.push("account-events", event, sn);
