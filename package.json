@@ -1,8 +1,8 @@
 {
   "dependencies": {
-    "hive-service": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-service.git",
-    "hive-verify": "git+ssh://git@git.fengchaohuzhu.com:10022/server/hive-verify.git",
-    "wechat-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/wechat-library.git"
+    "hive-service": "git+ssh://git@github.com/titan/hive-service.git",
+    "hive-verify": "git+ssh://git@github.com/titan/hive-verify.git",
+    "wechat-library": "git+ssh://git@github.com/titan/hive-wechat-library.git"
   },
   "devDependencies": {
     "@types/bluebird": "^3.0.36",
@@ -10,7 +10,7 @@
     "@types/pg-pool": "0.0.2",
     "@types/redis": "^0.12.33",
     "@types/uuid-1345": "^0.99.20",
-    "order-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/order-library.git",
-    "wallet-library": "git+ssh://git@git.fengchaohuzhu.com:10022/server/wallet-library.git"
+    "order-library": "git+ssh://git@github.com/titan/hive-order-library.git",
+    "wallet-library": "git+ssh://git@github.com/titan/hive-wallet-library.git"
   }
 }
